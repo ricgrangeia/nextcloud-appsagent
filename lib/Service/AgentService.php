@@ -41,6 +41,11 @@ class AgentService {
 	 *   do Telegram em esperas mais longas.
 	 */
 	public function run(?string $userId, string $instruction, ?callable $onStep = null): string {
+		// So para conseguir juntar, no log, os passos todos de UMA execucao --
+		// sem isto, uma resposta final errada (ex: "foram eliminados" sem
+		// nenhuma ferramenta ter sido chamada) nao deixa rasto de como se
+		// chegou la, e o diagnostico vira suposicao.
+		$runId = bin2hex(random_bytes(4));
 		$transcript = $this->buildSystemPrompt() . "\n\nInstrução do utilizador: " . $instruction . "\n";
 		$actionsTaken = [];
 
@@ -64,13 +69,27 @@ class AgentService {
 			}
 
 			if (($action['action'] ?? null) === 'final') {
-				return (string)($action['text'] ?? '');
+				$finalText = (string)($action['text'] ?? '');
+				$this->logger->info('appsagent: instrucao concluida', [
+					'run' => $runId,
+					'user' => $userId,
+					'steps' => $step,
+					'actions_taken' => $actionsTaken,
+					'final_text' => mb_substr($finalText, 0, 500),
+				]);
+				return $finalText;
 			}
 
 			$actionName = (string)($action['action'] ?? '');
 			$actionsTaken[] = $actionName;
 
 			$result = $this->dispatchTool($actionName, (array)($action['args'] ?? []), $userId);
+			$this->logger->debug('appsagent: passo do agente', [
+				'run' => $runId,
+				'action' => $actionName,
+				'args' => $action['args'] ?? [],
+				'result' => mb_substr(json_encode($result, JSON_UNESCAPED_UNICODE) ?: '', 0, 1000),
+			]);
 			$transcript .= "\nAção: " . $reply . "\nObservação: " . json_encode($result, JSON_UNESCAPED_UNICODE) . "\n";
 		}
 
@@ -78,6 +97,7 @@ class AgentService {
 		// -- so este aviso, com a sequencia de ferramentas chamadas, permite
 		// perceber depois o que o modelo andou a tentar fazer.
 		$this->logger->warning('appsagent: instrucao nao concluida dentro do limite de passos', [
+			'run' => $runId,
 			'instruction' => $instruction,
 			'user' => $userId,
 			'max_steps' => $maxSteps,
