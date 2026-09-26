@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace OCA\AppsAgent\BackgroundJob;
 
 use OCA\AppsAgent\Db\InstructionMapper;
+use OCA\AppsAgent\Db\PendingConfirmationMapper;
 use OCA\AppsAgent\Service\AgentService;
 use OCA\AppsAgent\Service\ConversationService;
 use OCA\AppsAgent\Service\MemoryService;
@@ -17,12 +18,16 @@ use Psr\Log\LoggerInterface;
  * instrucoes pendentes submetidas com `occ appsagent:submit "..."`.
  */
 class QueueWorker extends TimedJob {
+	/** Retencao dos registos de confirmacao pendente -- generosa, so para nao crescer para sempre. */
+	private const CONFIRMATIONS_RETENTION_SECONDS = 86400;
+
 	public function __construct(
 		ITimeFactory $time,
 		private InstructionMapper $mapper,
 		private AgentService $agentService,
 		private MemoryService $memory,
 		private ConversationService $conversation,
+		private PendingConfirmationMapper $pendingConfirmations,
 		private LoggerInterface $logger,
 	) {
 		parent::__construct($time);
@@ -34,6 +39,9 @@ class QueueWorker extends TimedJob {
 		// marcador de deduplicacao permanente e a tabela de memoria so cresce.
 		$this->memory->pruneStaleTelegramDedupMarkers();
 		$this->conversation->pruneStale();
+		$this->pendingConfirmations->deleteOlderThan(
+			(new \DateTimeImmutable('-' . self::CONFIRMATIONS_RETENTION_SECONDS . ' seconds'))->format(DATE_ATOM)
+		);
 
 		foreach ($this->mapper->findPending() as $instruction) {
 			try {

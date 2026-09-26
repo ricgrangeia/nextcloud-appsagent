@@ -92,6 +92,10 @@ class AgentChatProvider implements ISynchronousProvider {
 				. "\n\nNova mensagem do utilizador: " . $instruction;
 		}
 
-		return ['output' => $this->agentService->run($userId, $instruction)];
+		// channelKey aplica a exigencia de dois turnos separados para
+		// eliminacoes tambem aqui (ver AgentService::guardDestructive) -- sem
+		// id de sessao proprio nesta camada, usa-se o utilizador como canal.
+		$channelKey = $userId !== null ? 'assistant:' . $userId : null;
+		return ['output' => $this->agentService->run($userId, $instruction, null, $channelKey)];
 	}
 }

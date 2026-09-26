@@ -97,7 +97,7 @@ class TelegramController extends Controller {
 		try {
 			$reply = $this->agentService->run($nextcloudUserId, $instruction, function () use ($chatId): void {
 				$this->telegramClient->sendTyping((int)$chatId);
-			});
+			}, $chatKey);
 		} catch (\Throwable $e) {
 			$this->logger->error('appsagent: erro a processar mensagem do telegram', ['exception' => $e]);
 			$reply = 'Ocorreu um erro: ' . $e->getMessage();

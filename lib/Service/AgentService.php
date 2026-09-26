@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace OCA\AppsAgent\Service;
 
 use OCA\AppsAgent\AppInfo\Application;
+use OCA\AppsAgent\Db\PendingConfirmationMapper;
 use OCP\IConfig;
 use Psr\Log\LoggerInterface;
 
@@ -19,6 +20,14 @@ class AgentService {
 	// Usado so se a configuracao nao tiver um valor valido -- ver maxSteps().
 	private const DEFAULT_MAX_STEPS = 25;
 
+	/**
+	 * Uma accao destrutiva "vista" ha mais tempo do que isto conta como
+	 * esquecida -- mesma janela que a ConversationService usa para o
+	 * historico, para o modelo mental ser um so: silencio de mais de 30
+	 * minutos e uma conversa nova.
+	 */
+	private const CONFIRMATION_WINDOW_SECONDS = 1800;
+
 	public function __construct(
 		private ReasoningService $reasoning,
 		private CalendarService $calendar,
@@ -30,6 +39,7 @@ class AgentService {
 		private OccDiscoveryService $occDiscovery,
 		private PromptRulesService $promptRules,
 		private SupervisorToolsClient $supervisorTools,
+		private PendingConfirmationMapper $pendingConfirmations,
 		private IConfig $config,
 		private LoggerInterface $logger,
 	) {
@@ -39,8 +49,13 @@ class AgentService {
 	 * @param callable(): void|null $onStep chamado no inicio de cada passo do
 	 *   raciocinio -- usado, por exemplo, para repetir o indicador "a escrever..."
 	 *   do Telegram em esperas mais longas.
+	 * @param string|null $channelKey identifica a conversa para efeitos de
+	 *   confirmacao de accoes destrutivas (ver guardDestructive()). null
+	 *   ISENTA desse exigencia -- e o caso da fila (occ appsagent:submit),
+	 *   que ja e um comando explicito de quem tem acesso ao servidor e nao
+	 *   tem "segundo turno" nenhum para esperar.
 	 */
-	public function run(?string $userId, string $instruction, ?callable $onStep = null): string {
+	public function run(?string $userId, string $instruction, ?callable $onStep = null, ?string $channelKey = null): string {
 		// So para conseguir juntar, no log, os passos todos de UMA execucao --
 		// sem isto, uma resposta final errada (ex: "foram eliminados" sem
 		// nenhuma ferramenta ter sido chamada) nao deixa rasto de como se
@@ -48,6 +63,11 @@ class AgentService {
 		$runId = bin2hex(random_bytes(4));
 		$transcript = $this->buildSystemPrompt() . "\n\nInstrução do utilizador: " . $instruction . "\n";
 		$actionsTaken = [];
+		// Accoes destrutivas ja tentadas NESTE turno -- tentar a mesma accao
+		// duas vezes dentro do mesmo run() nao e uma segunda confirmacao
+		// humana, e o proprio truque que causou o bug do Artur (perguntar e
+		// responder sozinho sem ninguem ver nada entre as duas).
+		$seenThisRun = [];
 
 		$maxSteps = $this->maxSteps();
 		for ($step = 0; $step < $maxSteps; $step++) {
@@ -87,7 +107,7 @@ class AgentService {
 			$actionName = (string)($action['action'] ?? '');
 			$actionsTaken[] = $actionName;
 
-			$result = $this->dispatchTool($actionName, (array)($action['args'] ?? []), $userId);
+			$result = $this->dispatchTool($actionName, (array)($action['args'] ?? []), $userId, $channelKey, $seenThisRun);
 			$this->logger->warning('appsagent: passo do agente', [
 				'run' => $runId,
 				'action' => $actionName,
@@ -377,26 +397,72 @@ class AgentService {
 	}
 
 	/**
-	 * Porta de confirmacao obrigatoria para acoes destrutivas: sem
-	 * args['confirm'] === true, recusa sem executar nada. O prompt instrui o
-	 * modelo a nunca definir confirm:true na mesma resposta em que o
-	 * utilizador pediu a eliminacao pela primeira vez -- so depois de ele
-	 * confirmar numa mensagem separada.
+	 * Porta de confirmacao obrigatoria para acoes destrutivas.
+	 *
+	 * NAO confia em o modelo so definir confirm:true numa mensagem separada
+	 * -- confirmado duas vezes no mesmo dia que isso nao e fiavel (uma vez
+	 * executou logo, no mesmo turno, sem perguntar nada -- outra vez so
+	 * pediu confirmacao "por acaso"). A garantia passa a ser do CODIGO: a
+	 * MESMA accao (mesmo canal, mesmo alvo exato) tem de ja ter sido vista
+	 * numa chamada de um TURNO ANTERIOR -- nunca dentro do mesmo run(), ver
+	 * $seenThisRun -- antes de poder executar. A primeira vez que aparece e
+	 * SEMPRE recusada, com ou sem confirm:true.
+	 *
+	 * $channelKey null ISENTA esta exigencia -- ver o docblock de run().
+	 *
+	 * @param array<string,bool> $seenThisRun accoes ja tentadas neste MESMO
+	 *   turno (passado por referencia e partilhado por todo o run())
 	 */
-	private function requiresConfirmation(array $args): ?array {
-		if (($args['confirm'] ?? null) === true) {
-			return null;
+	private function guardDestructive(
+		string $signature,
+		?string $channelKey,
+		array $args,
+		array &$seenThisRun,
+		callable $execute,
+	): array {
+		if ($channelKey === null) {
+			return $execute();
 		}
+
+		if (isset($seenThisRun[$signature])) {
+			return $this->confirmationRefusal();
+		}
+		$seenThisRun[$signature] = true;
+
+		$confirmedNow = ($args['confirm'] ?? null) === true;
+		$seenNoutroTurno = $this->pendingConfirmations->seenBefore(
+			$channelKey,
+			$signature,
+			self::CONFIRMATION_WINDOW_SECONDS
+		);
+
+		if (!$confirmedNow || !$seenNoutroTurno) {
+			return $this->confirmationRefusal();
+		}
+
+		$result = $execute();
+		$this->pendingConfirmations->consume($channelKey, $signature);
+		return $result;
+	}
+
+	private function confirmationRefusal(): array {
 		return [
 			'error' => 'Esta e uma acao destrutiva/irreversivel -- recusada sem confirmacao explicita.',
 			'requires_confirmation' => true,
 			'hint' => 'Pergunta ao utilizador se tem a certeza (numa resposta "final", sem chamar nenhuma '
-				. 'ferramenta). So depois de ele confirmar explicitamente numa mensagem seguinte, repete '
-				. 'esta chamada com confirm:true.',
+				. 'ferramenta) e PARA AQUI -- nao tentes outra vez nesta mesma conversa. So depois de ele '
+				. 'confirmar explicitamente numa mensagem seguinte e que a mesma chamada, com confirm:true, '
+				. 'sera aceite.',
 		];
 	}
 
-	private function dispatchTool(string $name, array $args, ?string $userId): array {
+	private function dispatchTool(
+		string $name,
+		array $args,
+		?string $userId,
+		?string $channelKey = null,
+		array &$seenThisRun = [],
+	): array {
 		try {
 			return match ($name) {
 				'calendar_list_events' => ['events' => $this->calendar->listEvents(
@@ -420,9 +486,15 @@ class AgentService {
 					(string)($args['uid'] ?? ''),
 					$args['calendar'] ?? null,
 				),
-				'calendar_delete_event' => $this->requiresConfirmation($args) ?? $this->calendar->deleteEvent(
-					(string)($args['uid'] ?? ''),
-					$args['calendar'] ?? null,
+				'calendar_delete_event' => $this->guardDestructive(
+					'calendar_delete_event:' . ($args['uid'] ?? '') . '@' . ($args['calendar'] ?? ''),
+					$channelKey,
+					$args,
+					$seenThisRun,
+					fn () => $this->calendar->deleteEvent(
+						(string)($args['uid'] ?? ''),
+						$args['calendar'] ?? null,
+					),
 				),
 				'task_lists' => ['lists' => $this->tasks->listTaskLists()],
 				'task_list' => ['tasks' => $this->tasks->listTasks(
@@ -441,9 +513,15 @@ class AgentService {
 				'task_complete' => $this->tasks->completeTask((string)($args['uid'] ?? ''), $args['list'] ?? null),
 				'task_reopen' => $this->tasks->reopenTask((string)($args['uid'] ?? ''), $args['list'] ?? null),
 				'task_cancel' => $this->tasks->cancelTask((string)($args['uid'] ?? ''), $args['list'] ?? null),
-				'task_delete' => $this->requiresConfirmation($args) ?? $this->tasks->deleteTask(
-					(string)($args['uid'] ?? ''),
-					$args['list'] ?? null,
+				'task_delete' => $this->guardDestructive(
+					'task_delete:' . ($args['uid'] ?? '') . '@' . ($args['list'] ?? ''),
+					$channelKey,
+					$args,
+					$seenThisRun,
+					fn () => $this->tasks->deleteTask(
+						(string)($args['uid'] ?? ''),
+						$args['list'] ?? null,
+					),
 				),
 				'discovery_list_apps' => ['apps' => $this->discovery->listEnabledAppsDetailed()],
 				'discovery_describe_app' => $this->discovery->describeApp((string)($args['app_id'] ?? '')),
@@ -465,8 +543,21 @@ class AgentService {
 				'memory_list_learned_apps' => ['apps' => $this->memory->listLearnedApps()],
 				'memory_describe_app' => $this->describeAppUsage((string)($args['app_id'] ?? '')),
 				'memory_list_notes' => ['notes' => $this->memory->recallAll()],
-				'app_api_call' => (strtoupper(trim((string)($args['method'] ?? ''))) === 'DELETE' ? $this->requiresConfirmation($args) : null)
-					?? $this->dynamicApi->call(
+				'app_api_call' => strtoupper(trim((string)($args['method'] ?? ''))) === 'DELETE'
+					? $this->guardDestructive(
+						'app_api_call:DELETE:' . ($args['app_id'] ?? '') . ':' . ($args['path'] ?? ''),
+						$channelKey,
+						$args,
+						$seenThisRun,
+						fn () => $this->dynamicApi->call(
+							(string)($args['app_id'] ?? ''),
+							(string)($args['method'] ?? ''),
+							(string)($args['path'] ?? ''),
+							isset($args['body']) ? (array)$args['body'] : null,
+							isset($args['query']) ? (array)$args['query'] : null,
+						),
+					)
+					: $this->dynamicApi->call(
 						(string)($args['app_id'] ?? ''),
 						(string)($args['method'] ?? ''),
 						(string)($args['path'] ?? ''),

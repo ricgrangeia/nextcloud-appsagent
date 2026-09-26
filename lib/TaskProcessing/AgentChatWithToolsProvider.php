@@ -116,8 +116,12 @@ class AgentChatWithToolsProvider implements ISynchronousProvider {
 			$instruction = 'Resultados de ferramentas de um passo anterior: ' . $toolMessage . "\n\n" . $instruction;
 		}
 
+		// channelKey aplica a exigencia de dois turnos separados para
+		// eliminacoes tambem aqui (ver AgentService::guardDestructive) -- sem
+		// id de sessao proprio nesta camada, usa-se o utilizador como canal.
+		$channelKey = $userId !== null ? 'assistant:' . $userId : null;
 		return [
-			'output' => $this->agentService->run($userId, $instruction),
+			'output' => $this->agentService->run($userId, $instruction, null, $channelKey),
 			'tool_calls' => '[]',
 		];
 	}
