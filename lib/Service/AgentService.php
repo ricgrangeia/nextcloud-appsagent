@@ -70,7 +70,11 @@ class AgentService {
 
 			if (($action['action'] ?? null) === 'final') {
 				$finalText = (string)($action['text'] ?? '');
-				$this->logger->info('appsagent: instrucao concluida', [
+				// warning() e nao info()/debug() de proposito: o resto deste ficheiro
+				// ja so regista a warning (ver as outras chamadas a $this->logger),
+				// porque esta instancia tem o loglevel configurado acima de info --
+				// um log que ninguem ve nao serve de auditoria nenhuma.
+				$this->logger->warning('appsagent: instrucao concluida', [
 					'run' => $runId,
 					'user' => $userId,
 					'steps' => $step,
@@ -84,7 +88,7 @@ class AgentService {
 			$actionsTaken[] = $actionName;
 
 			$result = $this->dispatchTool($actionName, (array)($action['args'] ?? []), $userId);
-			$this->logger->debug('appsagent: passo do agente', [
+			$this->logger->warning('appsagent: passo do agente', [
 				'run' => $runId,
 				'action' => $actionName,
 				'args' => $action['args'] ?? [],
