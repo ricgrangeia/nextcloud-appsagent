@@ -21,6 +21,17 @@ use OCP\AppFramework\Db\DoesNotExistException;
 class MemoryService {
 	private const APP_TOPIC_PREFIX = 'app:';
 
+	/** Marcador de deduplicacao do Telegram (ver TelegramController::webhook). */
+	private const TELEGRAM_DEDUP_PREFIX = 'telegram_update_';
+
+	/**
+	 * So precisam de sobreviver ao reenvio de um update_id repetido -- o
+	 * Telegram faz isso em segundos, nunca em horas. Uma hora de folga chega
+	 * com sobra e evita que se acumulem para sempre (eram +100 ao fim de um
+	 * dia de uso normal).
+	 */
+	private const TELEGRAM_DEDUP_TTL_SECONDS = 3600;
+
 	public function __construct(
 		private NoteMapper $mapper,
 	) {
@@ -173,5 +184,17 @@ class MemoryService {
 			return false;
 		}
 		return $this->mapper->deleteByTopic($topic);
+	}
+
+	/**
+	 * Apaga os marcadores de deduplicacao do Telegram com mais de uma hora.
+	 * Chamado a cada ciclo do QueueWorker (5 em 5 minutos) -- sem isto, cada
+	 * mensagem recebida deixa um topico permanente e a tabela so cresce.
+	 *
+	 * @return int quantos foram apagados
+	 */
+	public function pruneStaleTelegramDedupMarkers(): int {
+		$before = (new \DateTimeImmutable('-' . self::TELEGRAM_DEDUP_TTL_SECONDS . ' seconds'))->format(DATE_ATOM);
+		return $this->mapper->deleteOlderThanByPrefix(self::TELEGRAM_DEDUP_PREFIX, $before);
 	}
 }

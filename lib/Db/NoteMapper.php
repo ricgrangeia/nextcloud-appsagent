@@ -61,4 +61,21 @@ class NoteMapper extends QBMapper {
 		$this->delete($entity);
 		return true;
 	}
+
+	/**
+	 * Apaga em lote os topicos com este prefixo mais antigos que $beforeIso,
+	 * sem precisar de os ler um a um primeiro.
+	 *
+	 * @return int quantos foram apagados
+	 */
+	public function deleteOlderThanByPrefix(string $prefix, string $beforeIso): int {
+		$qb = $this->db->getQueryBuilder();
+		$qb->delete($this->getTableName())
+			->where($qb->expr()->like('topic', $qb->createNamedParameter(
+				$this->db->escapeLikeParameter($prefix) . '%'
+			)))
+			->andWhere($qb->expr()->lt('updated_at', $qb->createNamedParameter($beforeIso)));
+
+		return $qb->executeStatement();
+	}
 }

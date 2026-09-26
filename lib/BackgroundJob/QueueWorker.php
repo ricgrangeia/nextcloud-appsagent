@@ -6,6 +6,7 @@ namespace OCA\AppsAgent\BackgroundJob;
 
 use OCA\AppsAgent\Db\InstructionMapper;
 use OCA\AppsAgent\Service\AgentService;
+use OCA\AppsAgent\Service\MemoryService;
 use OCP\AppFramework\Utility\ITimeFactory;
 use OCP\BackgroundJob\TimedJob;
 use Psr\Log\LoggerInterface;
@@ -19,6 +20,7 @@ class QueueWorker extends TimedJob {
 		ITimeFactory $time,
 		private InstructionMapper $mapper,
 		private AgentService $agentService,
+		private MemoryService $memory,
 		private LoggerInterface $logger,
 	) {
 		parent::__construct($time);
@@ -26,6 +28,10 @@ class QueueWorker extends TimedJob {
 	}
 
 	protected function run($argument): void {
+		// Arrumacao de fundo: sem isto, cada mensagem do Telegram deixa um
+		// marcador de deduplicacao permanente e a tabela de memoria so cresce.
+		$this->memory->pruneStaleTelegramDedupMarkers();
+
 		foreach ($this->mapper->findPending() as $instruction) {
 			try {
 				$result = $this->agentService->run(null, $instruction->getText());
