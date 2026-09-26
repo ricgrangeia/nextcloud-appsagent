@@ -147,8 +147,17 @@ class AgentService {
 		}
 
 		$timezone = new \DateTimeZone($this->config->getAppValue(Application::APP_ID, 'default_timezone', 'UTC'));
+		$agora = new \DateTimeImmutable('now', $timezone);
+		// O dia da semana vai escrito por extenso de proposito: deduzi-lo de uma
+		// data ("2026-09-26" -> sabado) e aritmetica de calendario, e os modelos
+		// erram-na com frequencia. Dado o facto feito, nunca precisa de o calcular
+		// nem de gastar um passo a chamar o datetime_calc so para isto.
+		$diaDaSemana = [
+			1 => 'segunda-feira', 2 => 'terça-feira', 3 => 'quarta-feira',
+			4 => 'quinta-feira', 5 => 'sexta-feira', 6 => 'sábado', 7 => 'domingo',
+		][(int)$agora->format('N')];
 		$lines[] = '';
-		$lines[] = 'Data e hora atual: ' . (new \DateTimeImmutable('now', $timezone))->format(DATE_ATOM)
+		$lines[] = 'Data e hora atual: ' . $diaDaSemana . ', ' . $agora->format(DATE_ATOM)
 			. ' (fuso horario: ' . $timezone->getName() . ')';
 
 		return implode("\n", $lines);
