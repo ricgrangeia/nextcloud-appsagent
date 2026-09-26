@@ -163,4 +163,15 @@ class MemoryService {
 	public function forgetApp(string $appId): bool {
 		return $this->mapper->deleteByTopic(self::APP_TOPIC_PREFIX . $appId);
 	}
+
+	/**
+	 * Apaga um apontamento solto. Recusa topicos "app:" para nao deitar fora
+	 * um conjunto inteiro de receitas por engano -- para isso ha forgetApp.
+	 */
+	public function forgetNote(string $topic): bool {
+		if ($topic === '' || str_starts_with($topic, self::APP_TOPIC_PREFIX)) {
+			return false;
+		}
+		return $this->mapper->deleteByTopic($topic);
+	}
 }
