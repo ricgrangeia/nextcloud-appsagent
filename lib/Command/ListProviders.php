@@ -30,9 +30,20 @@ class ListProviders extends Command {
 	protected function configure(): void {
 		$this->setName('appsagent:providers');
 		$this->setDescription('Lista os providers de Task Processing registados e o tipo de tarefa de cada um');
+		$this->addOption(
+			'shape',
+			null,
+			\Symfony\Component\Console\Input\InputOption::VALUE_REQUIRED,
+			'Mostra a forma de entrada/saida (nomes dos parametros) de um tipo de tarefa, ex: core:analyze-images'
+		);
 	}
 
 	protected function execute(InputInterface $input, OutputInterface $output): int {
+		$taskTypeId = $input->getOption('shape');
+		if ($taskTypeId !== null) {
+			return $this->showShape((string)$taskTypeId, $output);
+		}
+
 		$providers = $this->taskProcessingManager->getProviders();
 		if ($providers === []) {
 			$output->writeln('Nenhum provider de Task Processing registado.');
@@ -55,5 +66,37 @@ class ListProviders extends Command {
 		}
 
 		return 0;
+	}
+
+	/**
+	 * Nao sei de certeza o nome do metodo do IManager que devolve a forma
+	 * (nomes dos parametros de entrada/saida) de um TIPO de tarefa -- em vez
+	 * de adivinhar e escrever codigo consumidor em cima de uma suposicao,
+	 * tenta os nomes mais provaveis e, se nenhum existir, lista por reflexao
+	 * os metodos publicos reais do IManager para se ver o que ha.
+	 */
+	private function showShape(string $taskTypeId, OutputInterface $output): int {
+		foreach (['getAvailableTaskTypes', 'getTaskTypes'] as $metodo) {
+			if (!method_exists($this->taskProcessingManager, $metodo)) {
+				continue;
+			}
+			$tipos = $this->taskProcessingManager->{$metodo}();
+			$tipo = $tipos[$taskTypeId] ?? null;
+			if ($tipo === null) {
+				$output->writeln("'{$taskTypeId}' nao encontrado via {$metodo}(). Tipos disponiveis: " . implode(', ', array_keys($tipos)));
+				return 1;
+			}
+			$output->writeln(json_encode($tipo, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT));
+			return 0;
+		}
+
+		$output->writeln('Nenhum metodo conhecido (getAvailableTaskTypes/getTaskTypes) existe no IManager. Metodos publicos reais:');
+		foreach ((new \ReflectionClass($this->taskProcessingManager))->getMethods(\ReflectionMethod::IS_PUBLIC) as $m) {
+			$output->writeln('  ' . $m->getName() . '(' . implode(', ', array_map(
+				static fn ($p) => $p->getName(),
+				$m->getParameters()
+			)) . ')');
+		}
+		return 1;
 	}
 }
