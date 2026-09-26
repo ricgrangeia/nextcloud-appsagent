@@ -51,6 +51,7 @@ class ProactiveDigestService {
 
 		$secoes = array_filter([
 			$this->birthdaysSection($now),
+			$this->todaySection($now),
 			$this->onThisDaySection($now),
 			$this->tasksSection($now),
 		]);
@@ -97,29 +98,36 @@ class ProactiveDigestService {
 		return preg_replace('/\'s Birthday$/', '', $summary) ?? $summary;
 	}
 
+	/**
+	 * O que aconteceu HOJE -- deliberadamente separado de onThisDaySection():
+	 * o on-this-day do recall exclui sempre o ano corrente por desenho (a
+	 * frase e "em anos anteriores", nunca "este ano") -- confirmado no codigo
+	 * real (EpisodeMapper::onThisDay usa occurred_year < $currentYear), nao
+	 * suposto. Sem esta seccao, um episodio criado hoje mesmo (ex: "Sofia
+	 * teve teste de matematica", 26/09/2026) nunca apareceria no resumo do
+	 * proprio dia em que aconteceu.
+	 */
+	private function todaySection(\DateTimeImmutable $now): string {
+		$hoje = $now->format('Y-m-d');
+		$body = $this->callRecall('/ocs/v2.php/apps/recall/api/v1/episodes', ['from' => $hoje, 'to' => $hoje]);
+		$episodios = $body['ocs']['data']['episodes'] ?? null;
+		if (!is_array($episodios) || $episodios === []) {
+			return '';
+		}
+
+		$linhas = array_map(
+			static fn (array $e): string => '- ' . (string)($e['title'] ?? '(sem título)'),
+			$episodios
+		);
+
+		return "📌 Hoje no Recall:\n" . implode("\n", $linhas);
+	}
+
 	private function onThisDaySection(\DateTimeImmutable $now): string {
-		[$username, $password] = $this->agentAccount->credentials();
-		$path = '/ocs/v2.php/apps/recall/api/v1/episodes/on-this-day';
-		[$url, $extraHeaders] = $this->internalHttp->resolve($path);
-
-		try {
-			$response = $this->clientService->newClient()->request('GET', $url, [
-				'auth' => [$username, $password],
-				'timeout' => 15,
-				'headers' => $extraHeaders + ['OCS-APIRequest' => 'true', 'Accept' => 'application/json'],
-				'query' => ['date' => $now->format('Y-m-d'), 'window' => 0],
-				'http_errors' => false,
-			]);
-		} catch (\Throwable $e) {
-			// A app recall pode nao estar instalada -- silencioso de proposito.
-			$this->logger->warning('appsagent: falha ao ler o recall para o resumo diario', ['exception' => $e]);
-			return '';
-		}
-
-		if ($response->getStatusCode() !== 200) {
-			return '';
-		}
-		$body = json_decode((string)$response->getBody(), true);
+		$body = $this->callRecall(
+			'/ocs/v2.php/apps/recall/api/v1/episodes/on-this-day',
+			['date' => $now->format('Y-m-d'), 'window' => 0]
+		);
 		$porAno = $body['ocs']['data']['years'] ?? null;
 		if (!is_array($porAno) || $porAno === []) {
 			return '';
@@ -136,6 +144,40 @@ class ProactiveDigestService {
 		}
 
 		return "📅 Neste dia, em anos anteriores:\n" . implode("\n", $linhas);
+	}
+
+	/**
+	 * Chamada de leitura fixa ao recall, com a conta do agente -- devolve o
+	 * corpo decodificado, ou null em qualquer falha (app nao instalada, erro
+	 * de rede, HTTP != 200). Silencioso de proposito: um dia sem recall nao e
+	 * um erro do resumo diario.
+	 *
+	 * @param array<string,mixed> $query
+	 * @return array<string,mixed>|null
+	 */
+	private function callRecall(string $path, array $query): ?array {
+		[$username, $password] = $this->agentAccount->credentials();
+		[$url, $extraHeaders] = $this->internalHttp->resolve($path);
+
+		try {
+			$response = $this->clientService->newClient()->request('GET', $url, [
+				'auth' => [$username, $password],
+				'timeout' => 15,
+				'headers' => $extraHeaders + ['OCS-APIRequest' => 'true', 'Accept' => 'application/json'],
+				'query' => $query,
+				'http_errors' => false,
+			]);
+		} catch (\Throwable $e) {
+			$this->logger->warning('appsagent: falha ao ler o recall para o resumo diario', ['path' => $path, 'exception' => $e]);
+			return null;
+		}
+
+		if ($response->getStatusCode() !== 200) {
+			return null;
+		}
+
+		$decoded = json_decode((string)$response->getBody(), true);
+		return is_array($decoded) ? $decoded : null;
 	}
 
 	private function tasksSection(\DateTimeImmutable $now): string {
