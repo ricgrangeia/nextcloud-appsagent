@@ -34,6 +34,46 @@ class TelegramClient {
 		]);
 	}
 
+	/**
+	 * Descarrega o conteudo de um ficheiro que o utilizador enviou (ex: uma
+	 * foto) -- dois pedidos: getFile devolve o caminho interno, o segundo
+	 * descarrega o ficheiro em si desse caminho.
+	 *
+	 * @return array{0: string, 1: string}|null [bytes, mime] ou null se falhar
+	 */
+	public function downloadFile(string $fileId): ?array {
+		$token = $this->token();
+		try {
+			$meta = $this->clientService->newClient()->get(
+				'https://api.telegram.org/bot' . $token . '/getFile',
+				['query' => ['file_id' => $fileId], 'timeout' => 15]
+			);
+			$decoded = json_decode((string)$meta->getBody(), true);
+			$path = $decoded['result']['file_path'] ?? null;
+			if (!is_string($path) || $path === '') {
+				return null;
+			}
+
+			$response = $this->clientService->newClient()->get(
+				'https://api.telegram.org/file/bot' . $token . '/' . $path,
+				['timeout' => 30]
+			);
+			$bytes = (string)$response->getBody();
+			if ($bytes === '') {
+				return null;
+			}
+
+			$mime = match (true) {
+				str_ends_with($path, '.png') => 'image/png',
+				str_ends_with($path, '.webp') => 'image/webp',
+				default => 'image/jpeg',
+			};
+			return [$bytes, $mime];
+		} catch (\Throwable) {
+			return null;
+		}
+	}
+
 	/** Mostra o indicador "a escrever..." -- dura uns segundos no Telegram. */
 	public function sendTyping(int $chatId): void {
 		$url = 'https://api.telegram.org/bot' . $this->token() . '/sendChatAction';

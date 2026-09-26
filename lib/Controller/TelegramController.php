@@ -6,6 +6,7 @@ namespace OCA\AppsAgent\Controller;
 
 use OCA\AppsAgent\Service\AgentService;
 use OCA\AppsAgent\Service\ConversationService;
+use OCA\AppsAgent\Service\ImageAnalysisService;
 use OCA\AppsAgent\Service\MemoryService;
 use OCA\AppsAgent\Service\TelegramClient;
 use OCP\AppFramework\Controller;
@@ -23,6 +24,7 @@ class TelegramController extends Controller {
 		private TelegramClient $telegramClient,
 		private MemoryService $memory,
 		private ConversationService $conversation,
+		private ImageAnalysisService $imageAnalysis,
 		private LoggerInterface $logger,
 	) {
 		parent::__construct($appName, $request);
@@ -46,9 +48,14 @@ class TelegramController extends Controller {
 		$message = $payload['message'] ?? null;
 		$chatId = $message['chat']['id'] ?? null;
 		$fromId = $message['from']['id'] ?? null;
+		// Uma foto NAO vem em "text" -- o Telegram usa "caption" para o texto
+		// que a acompanha (pode nem existir). Sem isto, uma foto enviada era
+		// silenciosamente ignorada, sem resposta nenhuma.
 		$text = $message['text'] ?? null;
+		$photos = $message['photo'] ?? null;
+		$caption = $message['caption'] ?? null;
 
-		if ($chatId === null || $text === null) {
+		if ($chatId === null || ($text === null && !is_array($photos))) {
 			return new DataResponse(['ok' => true]);
 		}
 
@@ -86,12 +93,17 @@ class TelegramController extends Controller {
 
 		$this->telegramClient->sendTyping((int)$chatId);
 		$nextcloudUserId = $this->telegramClient->resolveNextcloudUser((int)$fromId);
+		$chatKey = ConversationService::telegramKey((int)$chatId);
+
+		if (is_array($photos) && $photos !== []) {
+			$this->handlePhoto((int)$chatId, $chatKey, $photos, is_string($caption) ? $caption : '');
+			return new DataResponse(['ok' => true]);
+		}
 
 		// Sem isto, cada mensagem chegava ao agente sozinha -- "sim" ou "confirmo"
 		// nao dizem nada por si so. Um bug real: confirmar uma eliminacao com "sim
 		// força" fez o agente inventar uma acao totalmente diferente, porque nao
 		// tinha rasto nenhum do que estava a confirmar.
-		$chatKey = ConversationService::telegramKey((int)$chatId);
 		$instruction = $this->conversation->withHistory($chatKey, (string)$text);
 
 		try {
@@ -109,5 +121,46 @@ class TelegramController extends Controller {
 
 		$this->telegramClient->sendMessage((int)$chatId, $reply !== '' ? $reply : 'Feito.');
 		return new DataResponse(['ok' => true]);
+	}
+
+	/**
+	 * Uma foto nunca executa nada sozinha -- so descreve o que ve e responde,
+	 * gravando a troca no historico da conversa (ConversationService). Assim,
+	 * quando a instrucao real chegar numa mensagem de texto a seguir ("insere
+	 * abastecimento no Hyundai accent"), o agente ja tem, no seu proprio
+	 * historico, o que cada foto mostrava -- sem precisar de nenhum mecanismo
+	 * novo para alem do que ja existe.
+	 *
+	 * @param array<int, array<string, mixed>> $photoSizes o Telegram manda a mesma foto
+	 *   em varias resolucoes, da mais pequena para a maior -- a ultima e a melhor.
+	 */
+	private function handlePhoto(int $chatId, string $chatKey, array $photoSizes, string $caption): void {
+		$maior = end($photoSizes);
+		$fileId = (string)($maior['file_id'] ?? '');
+		if ($fileId === '') {
+			return;
+		}
+
+		$baixado = $this->telegramClient->downloadFile($fileId);
+		if ($baixado === null) {
+			$this->telegramClient->sendMessage($chatId, 'Nao consegui descarregar essa imagem do Telegram.');
+			return;
+		}
+		[$bytes, $mime] = $baixado;
+
+		$pergunta = $caption !== ''
+			? $caption
+			: 'Descreve com detalhe o que ve nesta imagem, com atencao especial a numeros, '
+				. 'valores monetarios, quantidades e datas que apareçam.';
+
+		$descricao = $this->imageAnalysis->ask($bytes, $mime, $pergunta);
+		$resposta = $descricao ?? 'Recebi a imagem mas nao consegui interpretar o conteudo.';
+
+		// Guardado como um par de turno normal -- e assim que a instrucao
+		// seguinte, em texto, vai encontrar isto no historico.
+		$rotuloUtilizador = '[enviou uma imagem' . ($caption !== '' ? (': ' . $caption) : '') . ']';
+		$this->conversation->remember($chatKey, $rotuloUtilizador, $resposta);
+
+		$this->telegramClient->sendMessage($chatId, $resposta);
 	}
 }
