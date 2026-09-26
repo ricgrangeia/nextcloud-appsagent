@@ -58,8 +58,14 @@ class ImageAnalysisService {
 			$nome = 'telegram-' . bin2hex(random_bytes(6)) . '.' . $extensao;
 			$node = $tmpFolder->newFile($nome, $bytes);
 
+			// Confirmado por um erro real (nao suposicao): AnalyzeImagesProvider
+			// chama method_exists($item, 'getSize') em cada elemento -- espera o
+			// proprio no do ficheiro (OCP\Files\File), nao o id numerico. Faz
+			// sentido: ao chamar process() diretamente (o mesmo atalho que o
+			// ReasoningService ja usa para texto, sem passar pelo agendador da
+			// tarefa), somos nos que temos de entregar o ficheiro ja resolvido.
 			$result = $provider->process($username, [
-				'images' => [$node->getId()],
+				'images' => [$node],
 				'input' => $question,
 			], static fn (): bool => true);
 
