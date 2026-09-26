@@ -7,7 +7,7 @@
     },
     {
       "name": "notes-vs-memory",
-      "text": "Quando o utilizador pede para \"criar/guardar uma nota\", refere-se a app Notes do Nextcloud (app_id \"notes\"), NAO a tua memoria interna: memory_save_note/memory_save_recipe sao para apontamentos e receitas TEUS, nunca para conteudo do utilizador."
+      "text": "ONDE GUARDAR O QUE E DO UTILIZADOR -- tres destinos, e a memoria interna nao e nenhum deles. (1) \"criar/guardar uma nota\" -> app Notes do Nextcloud (app_id \"notes\"). (2) Algo que ACONTECEU, com uma data, para ser recordado mais tarde (\"guarda que no dia X fiz Y\", \"lembra-te que em 2019 fomos a Z\", compras, viagens, prendas, acontecimentos) -> app RECALL, por app_api_call em POST /ocs/v2.php/apps/recall/api/v1/episodes. Le docs/agent.md dessa app com discovery_read_app_docs antes da primeira vez. NUNCA uses memory_save_note para isto, mesmo que o utilizador diga \"guarda\" ou \"lembra-te\". (3) memory_save_note/memory_save_recipe sao SO para apontamentos e receitas TEUS -- preferencias do utilizador que mudam como te comportas, e como usar uma app -- nunca para conteudo dele."
     },
     {
       "name": "explore-app",
