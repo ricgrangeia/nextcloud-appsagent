@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace OCA\AppsAgent\Controller;
 
 use OCA\AppsAgent\Service\AgentService;
+use OCA\AppsAgent\Service\ConversationService;
 use OCA\AppsAgent\Service\MemoryService;
 use OCA\AppsAgent\Service\TelegramClient;
 use OCP\AppFramework\Controller;
@@ -21,6 +22,7 @@ class TelegramController extends Controller {
 		private AgentService $agentService,
 		private TelegramClient $telegramClient,
 		private MemoryService $memory,
+		private ConversationService $conversation,
 		private LoggerInterface $logger,
 	) {
 		parent::__construct($appName, $request);
@@ -85,14 +87,25 @@ class TelegramController extends Controller {
 		$this->telegramClient->sendTyping((int)$chatId);
 		$nextcloudUserId = $this->telegramClient->resolveNextcloudUser((int)$fromId);
 
+		// Sem isto, cada mensagem chegava ao agente sozinha -- "sim" ou "confirmo"
+		// nao dizem nada por si so. Um bug real: confirmar uma eliminacao com "sim
+		// força" fez o agente inventar uma acao totalmente diferente, porque nao
+		// tinha rasto nenhum do que estava a confirmar.
+		$chatKey = ConversationService::telegramKey((int)$chatId);
+		$instruction = $this->conversation->withHistory($chatKey, (string)$text);
+
 		try {
-			$reply = $this->agentService->run($nextcloudUserId, (string)$text, function () use ($chatId): void {
+			$reply = $this->agentService->run($nextcloudUserId, $instruction, function () use ($chatId): void {
 				$this->telegramClient->sendTyping((int)$chatId);
 			});
 		} catch (\Throwable $e) {
 			$this->logger->error('appsagent: erro a processar mensagem do telegram', ['exception' => $e]);
 			$reply = 'Ocorreu um erro: ' . $e->getMessage();
 		}
+
+		// Guarda-se a mensagem ORIGINAL (nao a $instruction com o historico
+		// embutido) -- senao o historico duplicava-se a cada troca.
+		$this->conversation->remember($chatKey, (string)$text, $reply);
 
 		$this->telegramClient->sendMessage((int)$chatId, $reply !== '' ? $reply : 'Feito.');
 		return new DataResponse(['ok' => true]);
