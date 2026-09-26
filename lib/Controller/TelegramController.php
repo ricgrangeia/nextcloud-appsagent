@@ -91,9 +91,26 @@ class TelegramController extends Controller {
 			return new DataResponse(['ok' => true]);
 		}
 
+		$chatKey = ConversationService::telegramKey((int)$chatId);
+
+		// Comando determinístico, sem passar pelo modelo -- exatamente porque
+		// o dia de hoje mostrou que confiar na LLM para "esquece a conversa"
+		// nao e fiavel (foi um caso destes que exigiu limpar a memoria a mao,
+		// via occ, antes de 0.7.15 ter o comando -- agora ha um atalho igual
+		// diretamente no Telegram, sem precisar de acesso ao servidor).
+		if (in_array(mb_strtolower(trim((string)$text)), ['/reset', '/novo'], true)) {
+			$apagados = $this->conversation->forgetChat($chatKey);
+			$this->telegramClient->sendMessage(
+				(int)$chatId,
+				$apagados > 0
+					? 'Histórico desta conversa apagado. Começamos do zero.'
+					: 'Já não havia histórico guardado -- já estava do zero.',
+			);
+			return new DataResponse(['ok' => true]);
+		}
+
 		$this->telegramClient->sendTyping((int)$chatId);
 		$nextcloudUserId = $this->telegramClient->resolveNextcloudUser((int)$fromId);
-		$chatKey = ConversationService::telegramKey((int)$chatId);
 
 		if (is_array($photos) && $photos !== []) {
 			$this->handlePhoto((int)$chatId, $chatKey, $photos, is_string($caption) ? $caption : '');
