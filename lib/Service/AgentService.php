@@ -244,7 +244,7 @@ class AgentService {
 					$json = substr($text, $start, $i - $start + 1);
 					$decoded = json_decode($json, true);
 					if (is_array($decoded)) {
-						return $decoded;
+						return $this->normalizeAction($decoded);
 					}
 					return $this->salvageFinalText($json);
 				}
@@ -252,6 +252,34 @@ class AgentService {
 		}
 
 		return null;
+	}
+
+	/**
+	 * O modelo poe por vezes os argumentos ao nivel de cima em vez de dentro
+	 * de "args" -- observado em producao (Langfuse, 2026-09-26):
+	 *   {"action":"discovery_describe_app_api","app_id":"recall"}
+	 * Sem isto a ferramenta era chamada com args vazio, falhava, e o ciclo
+	 * acabava a devolver o proprio JSON ao utilizador como se fosse resposta.
+	 *
+	 * "final" fica de fora de proposito: nesse caso o texto vive mesmo ao
+	 * nivel de cima ({"action":"final","text":"..."}), e nao e um argumento.
+	 */
+	private function normalizeAction(array $action): array {
+		$name = $action['action'] ?? null;
+		if (!is_string($name) || $name === '' || $name === 'final') {
+			return $action;
+		}
+		if (isset($action['args']) && is_array($action['args'])) {
+			return $action;
+		}
+
+		$args = $action;
+		unset($args['action'], $args['args']);
+		if ($args !== []) {
+			$action['args'] = $args;
+		}
+
+		return $action;
 	}
 
 	/** @return array{action: string, text: string}|null */
