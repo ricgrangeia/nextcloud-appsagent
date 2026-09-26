@@ -12,7 +12,7 @@ que ferramenta usar. Tambem sabe listar/descrever apps ativas, guardar memoria p
 e (opcionalmente) executar operacoes REST descobertas no openapi.json de outras apps.
 Disponivel no chat nativo do Assistant ("Texto livre", "Chat" e "Conversar com ferramentas"),
 por Telegram (webhook), e por uma fila processada pelo cron do proprio Nextcloud.]]></description>
-	<version>0.7.15</version>
+	<version>0.8.0</version>
 	<licence>AGPL-3.0-or-later</licence>
 	<author mail="ricardo@grangeia.pt">Ricardo</author>
 	<namespace>AppsAgent</namespace>
@@ -28,6 +28,7 @@ por Telegram (webhook), e por uma fila processada pelo cron do proprio Nextcloud
 	</dependencies>
 	<background-jobs>
 		<job>OCA\AppsAgent\BackgroundJob\QueueWorker</job>
+		<job>OCA\AppsAgent\BackgroundJob\ProactiveDigestJob</job>
 	</background-jobs>
 	<commands>
 		<command>OCA\AppsAgent\Command\Submit</command>

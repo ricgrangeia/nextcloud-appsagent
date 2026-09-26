@@ -91,6 +91,30 @@ class TelegramClient {
 	}
 
 	/**
+	 * Sentido inverso: dado um utilizador Nextcloud, o chat_id do Telegram
+	 * para lhe mandar uma mensagem sem ele ter escrito primeiro (ver
+	 * ProactiveDigestJob). Assume conversa privada, onde o chat_id do
+	 * Telegram e sempre igual ao id do utilizador Telegram -- verdade para
+	 * uma conversa 1:1 com o bot, que e o unico uso previsto aqui.
+	 */
+	public function findChatIdForUser(string $nextcloudUserId): ?int {
+		$raw = trim($this->config->getAppValue(Application::APP_ID, 'telegram_user_map', ''));
+		if ($raw === '') {
+			return null;
+		}
+		$map = json_decode($raw, true);
+		if (!is_array($map)) {
+			return null;
+		}
+		foreach ($map as $telegramUserId => $mappedUser) {
+			if ($mappedUser === $nextcloudUserId && ctype_digit((string)$telegramUserId)) {
+				return (int)$telegramUserId;
+			}
+		}
+		return null;
+	}
+
+	/**
 	 * Tenta consumir $rawText como um codigo de ligacao gerado nas
 	 * Definicoes pessoais de algum utilizador (TelegramLinkController). Se
 	 * for valido e ainda nao tiver expirado, liga esse utilizador ao ID
