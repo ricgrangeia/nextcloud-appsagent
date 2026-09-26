@@ -77,4 +77,28 @@ class ChatTurnMapper extends QBMapper {
 
 		return $qb->executeStatement();
 	}
+
+	/**
+	 * Apaga TODO o historico de um canal -- para quando uma crenca errada do
+	 * modelo (ex: "estou bloqueado para sempre") ficou gravada numa resposta
+	 * sua e se repete sozinha em cada turno seguinte, sem esperar os 30
+	 * minutos de silencio para a conversa se esquecer naturalmente.
+	 *
+	 * @return int quantos foram apagados
+	 */
+	public function deleteAllForChat(string $chatKey): int {
+		$qb = $this->db->getQueryBuilder();
+		$qb->delete($this->getTableName())
+			->where($qb->expr()->eq('chat_key', $qb->createNamedParameter($chatKey)));
+
+		return $qb->executeStatement();
+	}
+
+	/** @return int quantos foram apagados */
+	public function deleteAll(): int {
+		$qb = $this->db->getQueryBuilder();
+		$qb->delete($this->getTableName());
+
+		return $qb->executeStatement();
+	}
 }

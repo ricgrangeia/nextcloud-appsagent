@@ -63,4 +63,14 @@ class ConversationService {
 	public static function telegramKey(int $chatId): string {
 		return 'telegram:' . $chatId;
 	}
+
+	/** @return int quantos turnos foram apagados */
+	public function forgetChat(string $chatKey): int {
+		return $this->mapper->deleteAllForChat($chatKey);
+	}
+
+	/** @return int quantos turnos foram apagados */
+	public function forgetAll(): int {
+		return $this->mapper->deleteAll();
+	}
 }
