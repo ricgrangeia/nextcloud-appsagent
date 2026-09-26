@@ -41,7 +41,7 @@ class AgentService {
 	 *   do Telegram em esperas mais longas.
 	 */
 	public function run(?string $userId, string $instruction, ?callable $onStep = null): string {
-		$transcript = $this->buildSystemPrompt() . "\n\nInstrucao do utilizador: " . $instruction . "\n";
+		$transcript = $this->buildSystemPrompt() . "\n\nInstrução do utilizador: " . $instruction . "\n";
 		$actionsTaken = [];
 
 		$maxSteps = $this->maxSteps();
@@ -55,10 +55,10 @@ class AgentService {
 			if ($action === null) {
 				// Nunca mostrar JSON em bruto/partido ao utilizador -- pede ao modelo
 				// para corrigir e tentar de novo (conta como um passo normal).
-				$actionsTaken[] = '(resposta invalida)';
-				$transcript .= "\nAcao: " . $reply . "\nObservacao: {\"error\":\"A tua resposta anterior nao "
-					. "era um objeto JSON valido -- provavelmente aspas dentro do texto por escapar (usa \\\\\" "
-					. "para aspas dentro de valores string). Responde de novo, APENAS com um objeto JSON valido, "
+				$actionsTaken[] = '(resposta inválida)';
+				$transcript .= "\nAção: " . $reply . "\nObservação: {\"error\":\"A tua resposta anterior não "
+					. "era um objeto JSON válido -- provavelmente aspas dentro do texto por escapar (usa \\\\\" "
+					. "para aspas dentro de valores string). Responde de novo, APENAS com um objeto JSON válido, "
 					. "no formato pedido.\"}\n";
 				continue;
 			}
@@ -71,7 +71,7 @@ class AgentService {
 			$actionsTaken[] = $actionName;
 
 			$result = $this->dispatchTool($actionName, (array)($action['args'] ?? []), $userId);
-			$transcript .= "\nAcao: " . $reply . "\nObservacao: " . json_encode($result, JSON_UNESCAPED_UNICODE) . "\n";
+			$transcript .= "\nAção: " . $reply . "\nObservação: " . json_encode($result, JSON_UNESCAPED_UNICODE) . "\n";
 		}
 
 		// Sem isto, uma instrucao presa em loop nao deixa rasto nenhum no log
@@ -84,7 +84,7 @@ class AgentService {
 			'actions_taken' => $actionsTaken,
 		]);
 
-		return 'Nao consegui concluir a instrucao dentro do numero maximo de passos.';
+		return 'Não consegui concluir a instrução dentro do número máximo de passos.';
 	}
 
 	/**
@@ -101,39 +101,39 @@ class AgentService {
 
 	private function buildSystemPrompt(): string {
 		$lines = [
-			'Es o agente Nextcloud do utilizador. So podes responder com UM UNICO objeto JSON,',
-			'sem texto a volta, sem markdown, sem ```json, sem ``` -- APENAS o objeto JSON puro.',
+			'És o agente Nextcloud do utilizador. Só podes responder com UM ÚNICO objeto JSON,',
+			'sem texto à volta, sem markdown, sem ```json, sem ``` -- APENAS o objeto JSON puro.',
 			'Formatos permitidos:',
 			'{"action": "nome_da_ferramenta", "args": { ... }}',
 			'ou',
-			'{"action": "final", "text": "resposta final para o utilizador, em portugues"}',
+			'{"action": "final", "text": "resposta final para o utilizador, em português"}',
 			'',
-			'FORMATO OBRIGATORIO: a tua resposta DEVE começar com "{" e terminar com "}".',
-			'NUNCA uses ```json, ``` ou qualquer outro bloco de formatacao.',
+			'FORMATO OBRIGATÓRIO: a tua resposta DEVE começar com "{" e terminar com "}".',
+			'NUNCA uses ```json, ``` ou qualquer outro bloco de formatação.',
 			'NUNCA escrevas texto antes ou depois do JSON.',
 			'Exemplo CORRETO: {"action":"final","text":"Feito"}',
 			'Exemplo INCORRETO: ```json\n{"action":"final","text":"Feito"}\n```',
 			'',
-			'REGRA MAIS IMPORTANTE: se a instrucao pede uma ACAO (criar/atualizar/eliminar/cancelar '
+			'REGRA MAIS IMPORTANTE: se a instrução pede uma AÇÃO (criar/atualizar/eliminar/cancelar '
 				. 'qualquer coisa), o teu PRIMEIRO passo tem SEMPRE de ser "action" com uma ferramenta -- '
-				. 'NUNCA "final" logo de inicio. So podes responder "final" a confirmar que algo foi feito '
-				. 'depois de teres visto, nesta mesma conversa, uma Observacao real dessa ferramenta a '
-				. 'confirma-lo (ex: {"uid": ...} de calendar_create_event, ou {"ok": true} de app_api_call). '
-				. 'Exemplo do que NAO fazer: instrucao "cria uma nota X" -> responder logo '
+				. 'NUNCA "final" logo de início. Só podes responder "final" a confirmar que algo foi feito '
+				. 'depois de teres visto, nesta mesma conversa, uma Observação real dessa ferramenta a '
+				. 'confirmá-lo (ex: {"uid": ...} de calendar_create_event, ou {"ok": true} de app_api_call). '
+				. 'Exemplo do que NÃO fazer: instrução "cria uma nota X" -> responder logo '
 				. '{"action":"final","text":"A nota X foi criada"} sem nunca teres chamado nenhuma ferramenta. '
-				. 'Isso e mentira -- nada foi criado. Se ainda nao tens ferramenta para a acao pedida, di-lo '
-				. 'honestamente ("ainda nao sei fazer X") em vez de inventares que foi feito. '
-				. 'ATENCAO -- "ok":true NAO E PROVA SUFICIENTE para uma ATUALIZACAO: uma API pode aceitar '
+				. 'Isso é mentira -- nada foi criado. Se ainda não tens ferramenta para a ação pedida, di-lo '
+				. 'honestamente ("ainda não sei fazer X") em vez de inventares que foi feito. '
+				. 'ATENÇÃO -- "ok":true NÃO É PROVA SUFICIENTE para uma ATUALIZAÇÃO: uma API pode aceitar '
 				. 'um campo desconhecido/errado e devolver ok:true na mesma sem mudar nada. Antes de dizeres '
-				. '"final" a confirmar uma atualizacao de conteudo, confirma que o VALOR ESPECIFICO que '
-				. 'mudaste aparece correto na propria resposta -- SE A RESPOSTA DO PUT/POST NAO MOSTRAR '
-					. 'CLARAMENTE ESSE CAMPO, FAZ TU MESMO, POR INICIATIVA PROPRIA, UMA CHAMADA GET A SEGUIR '
-					. 'PARA VERIFICAR, sem esperares que o utilizador peca ou pergunte se resultou. Se o campo '
+				. '"final" a confirmar uma atualização de conteúdo, confirma que o VALOR ESPECÍFICO que '
+				. 'mudaste aparece correto na própria resposta -- SE A RESPOSTA DO PUT/POST NÃO MOSTRAR '
+					. 'CLARAMENTE ESSE CAMPO, FAZ TU MESMO, POR INICIATIVA PRÓPRIA, UMA CHAMADA GET A SEGUIR '
+					. 'PARA VERIFICAR, sem esperares que o utilizador peça ou pergunte se resultou. Se o campo '
 				. 'relevante (ex: "content") ficar vazio ou diferente do que pediste apesar de ok:true, o '
-				. 'campo que enviaste estava errado: tenta outro nome de campo (ve a documentacao outra vez) '
+				. 'campo que enviaste estava errado: tenta outro nome de campo (vê a documentação outra vez) '
 				. 'em vez de assumires sucesso.',
 			'',
-			'Ferramentas disponiveis:',
+			'Ferramentas disponíveis:',
 		];
 		foreach ($this->toolCatalog() as $name => $description) {
 			$lines[] = "- {$name}: {$description}";
@@ -149,8 +149,8 @@ class AgentService {
 		$timezone = new \DateTimeZone($this->config->getAppValue(Application::APP_ID, 'default_timezone', 'UTC'));
 		$agora = new \DateTimeImmutable('now', $timezone);
 		// O dia da semana vai escrito por extenso de proposito: deduzi-lo de uma
-		// data ("2026-09-26" -> sabado) e aritmetica de calendario, e os modelos
-		// erram-na com frequencia. Dado o facto feito, nunca precisa de o calcular
+		// data ("2026-09-26" -> sábado), é aritmética de calendario, e os modelos
+		// erram-na com frequência. Dado o facto feito, nunca precisa de o calcular
 		// nem de gastar um passo a chamar o datetime_calc so para isto.
 		$diaDaSemana = [
 			1 => 'segunda-feira', 2 => 'terça-feira', 3 => 'quarta-feira',
@@ -188,36 +188,36 @@ class AgentService {
 			'calendar_create_event' => 'Cria um evento. args: {summary, start, end, description?, calendar?}',
 			'calendar_update_event' => 'Atualiza campos de um evento existente. args: {uid, summary?, start?, end?, description?, calendar?}',
 			'calendar_deactivate_event' => 'Marca um evento como CANCELLED sem o apagar. args: {uid, calendar?}',
-			'calendar_delete_event' => 'Apaga definitivamente um evento -- IRREVERSIVEL, exige confirm:true (ve a regra de confirmacao abaixo). args: {uid, calendar?, confirm?}',
-			'task_lists' => 'Lista as listas de tarefas disponiveis (calendarios que aceitam VTODO), com uri e nome. Usa isto se task_list devolver vazio -- a lista pode nao se chamar "personal". args: {}',
-			'task_list' => 'Lista tarefas. Por omissao so as por fazer; include_completed:true inclui concluidas e canceladas. args: {include_completed?, list?}',
+			'calendar_delete_event' => 'Apaga definitivamente um evento -- IRREVERSÍVEL, exige confirm:true (ve a regra de confirmação abaixo). args: {uid, calendar?, confirm?}',
+			'task_lists' => 'Lista as listas de tarefas disponiveis (calendários que aceitam VTODO), com uri e nome. Usa isto se task_list devolver vazio -- a lista pode não se chamar "personal". args: {}',
+			'task_list' => 'Lista tarefas. Por omissao só as por fazer; include_completed:true inclui concluídas e canceladas. args: {include_completed?, list?}',
 			'task_create' => 'Cria uma tarefa. args: {summary, due?, description?, priority?, parent?, list?}',
 			'task_update' => 'Atualiza campos de uma tarefa existente. args: {uid, summary?, description?, due?, start?, priority?, percent_complete?, list?}',
 			'task_complete' => 'Marca uma tarefa como concluida (STATUS COMPLETED + 100%). args: {uid, list?}',
 			'task_reopen' => 'Reabre uma tarefa concluida ou cancelada. args: {uid, list?}',
 			'task_cancel' => 'Marca uma tarefa como CANCELLED sem a apagar. args: {uid, list?}',
-			'task_delete' => 'Apaga definitivamente uma tarefa -- IRREVERSIVEL, exige confirm:true (ve a regra de confirmacao abaixo). args: {uid, list?, confirm?}',
+			'task_delete' => 'Apaga definitivamente uma tarefa -- IRREVERSÍVEL, exige confirm:true (ve a regra de confirmação abaixo). args: {uid, list?, confirm?}',
 			'discovery_list_apps' => 'Lista as apps ativas neste Nextcloud, com id e nome (ex: {"id":"notes","name":"Notes"}) -- usa o nome para mapeares o que o utilizador disser (ex: "Notas") ao app_id certo. args: {}',
-			'discovery_describe_app' => 'Le (so leitura) as capacidades reportadas por uma app especifica, para perceberes o que ela suporta antes de assumires que consegues agir sobre ela. args: {app_id}',
-			'discovery_describe_app_api' => 'Catalogo real (so leitura) das operacoes HTTP de uma app instalada: metodo, caminho completo (ja com prefixo /apps/<id>/... ou /ocs/v2.php/apps/<id>/...), origem (routes.php / atributos / openapi.json), flags no_csrf/public/cors, e a lista "docs" de ficheiros de documentacao que a app envia. Funciona para QUALQUER app, nao so as que tem openapi.json. Fica em cache; args: {app_id, refresh?}',
-			'discovery_read_app_docs' => 'Le um ficheiro de documentacao que a app envia (README.md, docs/**/*.md) -- util para perceber campos e semantica de uma API antes de a chamar. Sem "file", le o primeiro da lista "docs" do catalogo. args: {app_id, file?}',
-			'memory_save_note' => 'MEMORIA INTERNA DO AGENTE (nao e a app Notes do Nextcloud): guarda um apontamento de texto livre teu (preferencias do utilizador, factos soltos) sobre um topico. Para receitas de como usar uma app usa antes memory_save_recipe. args: {topic, note}',
-			'memory_recall' => 'MEMORIA INTERNA DO AGENTE: le o apontamento de texto livre guardado sobre um topico, se existir. args: {topic}',
-			'memory_list_notes' => 'MEMORIA INTERNA DO AGENTE: lista todos os apontamentos de texto livre que ja guardaste. args: {}',
-			'memory_save_recipe' => 'Guarda/atualiza uma receita confirmada de como executar uma tarefa numa app (por baixo, guarda-a no topico "app:<app_id>"). Usa a mesma "task" para atualizares uma receita existente em vez de duplicares. args: {app_id, task, method, path, body_template?, example?}',
-			'memory_get_recipes' => 'Le as receitas ja confirmadas para uma app (lista de {task, method, path, body_template, example}). Chama isto ANTES de explorares uma app, para veres se ja sabes fazer a tarefa pedida. args: {app_id}',
-			'memory_list_learned_apps' => 'Lista as apps para as quais ja tens pelo menos uma receita (confirmada ou por confirmar), e as tarefas que sabes fazer em cada uma -- usa isto quando o utilizador perguntar "que apps sabes usar" ou "que apps tens configuradas/aprendidas". args: {}',
-			'memory_describe_app' => 'Responde a "o que ja sabes fazer da app X": devolve para que serve a app (nome/resumo) e as tuas receitas separadas em confirmed_actions (o utilizador validou que ficam bem) e tentative_actions (a API disse ok, mas ainda ninguem confirmou que o resultado esta correto). args: {app_id}',
-			'app_api_call' => 'Executa UMA operacao HTTP do catalogo de uma app (discovery_describe_app_api). O metodo+caminho tem de existir mesmo no catalogo, senao e recusado. DELETE e IRREVERSIVEL e exige confirm:true (ve a regra de confirmacao abaixo), e pode estar bloqueado por completo (generic_api_allow_delete). Devolve {status, ok, body, hint?} -- erros HTTP vem como observacao (nao excecao) para poderes corrigir e tentar de novo. args: {app_id, method, path, body?, query?, confirm?}. Pode estar desligada -- se devolver erro a dizer isso, informa o utilizador.',
+			'discovery_describe_app' => 'Le (só leitura) as capacidades reportadas por uma app específica, para perceberes o que ela suporta antes de assumires que consegues agir sobre ela. args: {app_id}',
+			'discovery_describe_app_api' => 'Catálogo real (só leitura) das operações HTTP de uma app instalada: metodo, caminho completo (já com prefixo /apps/<id>/... ou /ocs/v2.php/apps/<id>/...), origem (routes.php / atributos / openapi.json), flags no_csrf/public/cors, e a lista "docs" de ficheiros de documentacao que a app envia. Funciona para QUALQUER app, não só as que tem openapi.json. Fica em cache; args: {app_id, refresh?}',
+			'discovery_read_app_docs' => 'Le um ficheiro de documentacao que a app envia (README.md, docs/**/*.md) -- útil para perceber campos e semântica de uma API antes de a chamar. Sem "file", le o primeiro da lista "docs" do catálogo. args: {app_id, file?}',
+			'memory_save_note' => 'MEMÓRIA INTERNA DO AGENTE (não é a app Notes do Nextcloud): guarda um apontamento de texto livre teu (preferências do utilizador, factos soltos) sobre um tópico. Para receitas de como usar uma app usa antes memory_save_recipe. args: {topic, note}',
+			'memory_recall' => 'MEMÓRIA INTERNA DO AGENTE: le o apontamento de texto livre guardado sobre um tópico, se existir. args: {topic}',
+			'memory_list_notes' => 'MEMÓRIA INTERNA DO AGENTE: lista todos os apontamentos de texto livre que já guardaste. args: {}',
+			'memory_save_recipe' => 'Guarda/atualiza uma receita confirmada de como executar uma tarefa numa app (por baixo, guarda-a no tópico "app:<app_id>"). Usa a mesma "task" para atualizares uma receita existente em vez de duplicares. args: {app_id, task, method, path, body_template?, example?}',
+			'memory_get_recipes' => 'Le as receitas já confirmadas para uma app (lista de {task, method, path, body_template, example}). Chama isto ANTES de explorares uma app, para veres se já sabes fazer a tarefa pedida. args: {app_id}',
+			'memory_list_learned_apps' => 'Lista as apps para as quais já tens pelo menos uma receita (confirmada ou por confirmar), e as tarefas que sabes fazer em cada uma -- usa isto quando o utilizador perguntar "que apps sabes usar" ou "que apps tens configuradas/aprendidas". args: {}',
+			'memory_describe_app' => 'Responde a "o que já sabes fazer da app X": devolve para que serve a app (nome/resumo) e as tuas receitas separadas em confirmed_actions (o utilizador validou que ficam bem) e tentative_actions (a API disse ok, mas ainda ninguem confirmou que o resultado esta correto). args: {app_id}',
+			'app_api_call' => 'Executa UMA operação HTTP do catálogo de uma app (discovery_describe_app_api). O metodo+caminho tem de existir mesmo no catálogo, senão é recusado. DELETE e IRREVERSÍVEL e exige confirm:true (ve a regra de confirmação abaixo), e pode estar bloqueado por completo (generic_api_allow_delete). Devolve {status, ok, body, hint?} -- erros HTTP vem como observacao (não exceção) para poderes corrigir e tentar de novo. args: {app_id, method, path, body?, query?, confirm?}. Pode estar desligada -- se devolver erro a dizer isso, informa o utilizador.',
 			'discovery_list_app_commands' => 'Lista os comandos occ que uma app regista (mais lento -- corre um subprocesso occ). args: {app_id}',
-			'discovery_describe_command' => 'Le o texto de --help de um comando occ especifico (so leitura, nao o executa). args: {command}',
-			'agent_learn_rule' => 'Ensina-te uma regra de comportamento GERAL e persistente, que passa a aplicar-se a TODAS as conversas futuras (nao so a uma app -- para isso usa memory_save_recipe). Usa isto quando o utilizador te disser explicitamente para te lembrares de algo sobre como te deves comportar (ex: "a partir de agora, quando eu disser X, faz Y"). Nao uses para factos soltos (isso e memory_save_note) nem para receitas de uma app (memory_save_recipe). Nao podes sobrescrever as regras base do sistema com o mesmo nome. So funciona quando falas com um utilizador Nextcloud autenticado (Assistant/Chat) -- recusa a partir da fila/cron ou do Telegram. args: {name, text}',
-			'agent_list_rules' => 'Lista as tuas regras de comportamento em vigor, distinguindo as base (do sistema) das que o utilizador te ensinou, com a data em que as aprendeste. Usa SEMPRE isto -- e nunca a memoria de notas, que e outra coisa -- quando te perguntarem que regras ou instrucoes permanentes tens definidas (ex: "o que te ensinei", "que regras tens a partir de agora"). args: {}',
-			'agent_forget_rule' => 'Apaga uma regra que te foi ensinada, quando o utilizador disser para a esqueceres ou quando ela deixar de fazer sentido. Chama agent_list_rules primeiro para saberes o nome exato. Nao apaga regras base do sistema. So funciona quando falas com um utilizador Nextcloud autenticado (Assistant/Chat) -- recusa a partir da fila/cron ou do Telegram. args: {name}',
-			'memory_forget_app' => 'Apaga TODAS as receitas aprendidas de uma app, para as voltares a explorar do zero na proxima vez -- usa quando o utilizador pedir para "esquecer"/"reaprender" uma app, ou quando as receitas guardadas parecerem erradas/desatualizadas. args: {app_id}',
+			'discovery_describe_command' => 'Le o texto de --help de um comando occ específico (só leitura, não o executa). args: {command}',
+			'agent_learn_rule' => 'Ensina-te uma regra de comportamento GERAL e persistente, que passa a aplicar-se a TODAS as conversas futuras (não só a uma app -- para isso usa memory_save_recipe). Usa isto quando o utilizador te disser explicitamente para te lembrares de algo sobre como te deves comportar (ex: "a partir de agora, quando eu disser X, faz Y"). Não uses para factos soltos (isso é memory_save_note) nem para receitas de uma app (memory_save_recipe). Não podes sobrescrever as regras base do sistema com o mesmo nome. Só funciona quando falas com um utilizador Nextcloud autenticado (Assistant/Chat) -- recusa a partir da fila/cron ou do Telegram. args: {name, text}',
+			'agent_list_rules' => 'Lista as tuas regras de comportamento em vigor, distinguindo as base (do sistema) das que o utilizador te ensinou, com a data em que as aprendeste. Usa SEMPRE isto -- e nunca a memória de notas, que é outra coisa -- quando te perguntarem que regras ou instruções permanentes tens definidas (ex: "o que te ensinei", "que regras tens a partir de agora"). args: {}',
+			'agent_forget_rule' => 'Apaga uma regra que te foi ensinada, quando o utilizador disser para a esqueceres ou quando ela deixar de fazer sentido. Chama agent_list_rules primeiro para saberes o nome exato. Não apaga regras base do sistema. Só funciona quando falas com um utilizador Nextcloud autenticado (Assistant/Chat) -- recusa a partir da fila/cron ou do Telegram. args: {name}',
+			'memory_forget_app' => 'Apaga TODAS as receitas aprendidas de uma app, para as voltares a explorar do zero na próxima vez -- usa quando o utilizador pedir para "esquecer"/"reaprender" uma app, ou quando as receitas guardadas parecerem erradas/desatualizadas. args: {app_id}',
 			'calculator' => 'Avalia uma expressao matematica (raiz, trigonometria, logaritmos, fatorial, pi/e, etc.) -- usa isto para QUALQUER conta, nunca calcules tu mesmo de cabeca. Devolve {result} ou {error}. args: {expression}',
-			'web_search' => 'Pesquisa na web (DuckDuckGo) e devolve uma lista de resultados {title, url, snippet}. Usa quando precisares de informacao atual ou que nao sabes. args: {query, max_results?}',
-			'datetime_calc' => 'Responde a perguntas de datas/horas em linguagem natural (ex: "que dia e daqui a 10 dias?", "quantos dias faltam para 25/12?"). Devolve {result} com a resposta ja calculada. args: {question}',
+			'web_search' => 'Pesquisa na web (DuckDuckGo) e devolve uma lista de resultados {title, url, snippet}. Usa quando precisares de informação atual ou que não sabes. args: {query, max_results?}',
+			'datetime_calc' => 'Responde a perguntas de datas/horas em linguagem natural (ex: "que dia é daqui a 10 dias?", "quantos dias faltam para 25/12?"). Devolve {result} com a resposta já calculada. args: {question}',
 		];
 	}
 
