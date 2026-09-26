@@ -35,7 +35,7 @@ class PromptRulesService {
 	 */
 	public const PROTECTED_RULE_NAMES = [
 		'calendar-actions', 'notes-vs-memory', 'explore-app', 'app-naming', 'recipe-status',
-		'research-vs-action', 'delete-confirmation',
+		'research-vs-action', 'delete-confirmation', 'date-arithmetic',
 	];
 
 	public function __construct(
