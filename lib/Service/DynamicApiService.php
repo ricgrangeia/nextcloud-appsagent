@@ -115,10 +115,15 @@ class DynamicApiService {
 			$result['hint'] = 'Sem permissao com a conta do agente -- confirma que a conta tem acesso a este recurso.';
 		} elseif ($status === 404) {
 			$result['hint'] = 'Nao encontrado -- verifica os parametros do caminho ({id}, etc.) e o prefixo.';
-		}
-
-		if (($operation['no_csrf'] ?? null) === false && !$result['ok'] && $status !== 412) {
-			$result['hint'] = ($result['hint'] ?? '') . ' Nota: esta rota parece exigir CSRF (no_csrf=false).';
+		} elseif ($status >= 500) {
+			// Removido daqui um "nota: parece exigir CSRF" que disparava para
+			// QUALQUER falha numa rota com no_csrf=false -- incluindo este caso
+			// real, onde um 500 (a propria app a rebentar) foi apresentado ao
+			// utilizador como "falhou por CSRF", que era simplesmente falso: o
+			// erro e interno aquela app, nao tem nada a ver com autenticacao.
+			$result['hint'] = 'Erro interno da propria app (nao e falha de autenticacao) -- '
+				. 'confirma os nomes e tipos exatos dos campos do corpo contra o que a app espera '
+				. '(discovery_read_app_docs, se houver documentacao) antes de desistires.';
 		}
 
 		return $result;
