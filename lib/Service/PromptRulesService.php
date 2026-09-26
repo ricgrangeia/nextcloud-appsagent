@@ -207,4 +207,73 @@ class PromptRulesService {
 
 		return ['saved' => true, 'name' => $name, 'total_rules' => count($rules)];
 	}
+
+	/**
+	 * Lista as regras em vigor, distinguindo as base das aprendidas -- a mesma
+	 * informacao que o comando `occ appsagent:rules` mostra. Existe porque o
+	 * agente so tinha escrita (learn) e nenhuma leitura: perguntado pelas suas
+	 * proprias regras, nao tinha ferramenta que chamar e acabava a recitar de
+	 * cabeca (ou a confundi-las com as notas de memoria).
+	 *
+	 * @return list<array{name: string, text: string, base: bool, learned_at?: string}>
+	 */
+	public function listRules(): array {
+		$out = [];
+		foreach ((array)($this->loadDocument()['rules'] ?? []) as $rule) {
+			if (!is_array($rule) || !isset($rule['name'])) {
+				continue;
+			}
+			$name = (string)$rule['name'];
+			$entry = [
+				'name' => $name,
+				'text' => (string)($rule['text'] ?? ''),
+				'base' => in_array($name, self::PROTECTED_RULE_NAMES, true),
+			];
+			if (isset($rule['learned_at'])) {
+				$entry['learned_at'] = (string)$rule['learned_at'];
+			}
+			$out[] = $entry;
+		}
+		return $out;
+	}
+
+	/**
+	 * Esquece uma regra aprendida. Ate aqui uma regra ensinada era permanente
+	 * -- havia learn() e mais nada -- e uma regra que deixou de fazer sentido
+	 * so saia editando o JSON no appdata a mao. As regras base nao se apagam:
+	 * seriam repostas pelo healMissingBaseRules() na leitura seguinte, o que
+	 * daria a ilusao de um apagar que nao pegou.
+	 */
+	public function forget(string $name): array {
+		$name = trim($name);
+		if ($name === '') {
+			return ['error' => 'precisa de "name" nao vazio.'];
+		}
+		if (in_array($name, self::PROTECTED_RULE_NAMES, true)) {
+			return ['error' => "'{$name}' e uma regra base protegida e nao pode ser apagada."];
+		}
+
+		$document = $this->loadDocument();
+		$rules = is_array($document['rules'] ?? null) ? $document['rules'] : [];
+
+		$kept = [];
+		$found = false;
+		foreach ($rules as $rule) {
+			if (is_array($rule) && ($rule['name'] ?? null) === $name) {
+				$found = true;
+				continue;
+			}
+			$kept[] = $rule;
+		}
+		if (!$found) {
+			return ['error' => "nao existe nenhuma regra com o nome '{$name}'."];
+		}
+
+		$document['rules'] = array_values($kept);
+		if (!$this->writeDocument($document)) {
+			return ['error' => 'Nao consegui apagar a regra -- falha ao escrever no armazenamento da app.'];
+		}
+
+		return ['forgotten' => true, 'name' => $name, 'total_rules' => count($kept)];
+	}
 }

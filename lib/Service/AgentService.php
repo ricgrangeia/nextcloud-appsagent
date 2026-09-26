@@ -212,6 +212,8 @@ class AgentService {
 			'discovery_list_app_commands' => 'Lista os comandos occ que uma app regista (mais lento -- corre um subprocesso occ). args: {app_id}',
 			'discovery_describe_command' => 'Le o texto de --help de um comando occ especifico (so leitura, nao o executa). args: {command}',
 			'agent_learn_rule' => 'Ensina-te uma regra de comportamento GERAL e persistente, que passa a aplicar-se a TODAS as conversas futuras (nao so a uma app -- para isso usa memory_save_recipe). Usa isto quando o utilizador te disser explicitamente para te lembrares de algo sobre como te deves comportar (ex: "a partir de agora, quando eu disser X, faz Y"). Nao uses para factos soltos (isso e memory_save_note) nem para receitas de uma app (memory_save_recipe). Nao podes sobrescrever as regras base do sistema com o mesmo nome. So funciona quando falas com um utilizador Nextcloud autenticado (Assistant/Chat) -- recusa a partir da fila/cron ou do Telegram. args: {name, text}',
+			'agent_list_rules' => 'Lista as tuas regras de comportamento em vigor, distinguindo as base (do sistema) das que o utilizador te ensinou, com a data em que as aprendeste. Usa SEMPRE isto -- e nunca a memoria de notas, que e outra coisa -- quando te perguntarem que regras ou instrucoes permanentes tens definidas (ex: "o que te ensinei", "que regras tens a partir de agora"). args: {}',
+			'agent_forget_rule' => 'Apaga uma regra que te foi ensinada, quando o utilizador disser para a esqueceres ou quando ela deixar de fazer sentido. Chama agent_list_rules primeiro para saberes o nome exato. Nao apaga regras base do sistema. So funciona quando falas com um utilizador Nextcloud autenticado (Assistant/Chat) -- recusa a partir da fila/cron ou do Telegram. args: {name}',
 			'memory_forget_app' => 'Apaga TODAS as receitas aprendidas de uma app, para as voltares a explorar do zero na proxima vez -- usa quando o utilizador pedir para "esquecer"/"reaprender" uma app, ou quando as receitas guardadas parecerem erradas/desatualizadas. args: {app_id}',
 			'calculator' => 'Avalia uma expressao matematica (raiz, trigonometria, logaritmos, fatorial, pi/e, etc.) -- usa isto para QUALQUER conta, nunca calcules tu mesmo de cabeca. Devolve {result} ou {error}. args: {expression}',
 			'web_search' => 'Pesquisa na web (DuckDuckGo) e devolve uma lista de resultados {title, url, snippet}. Usa quando precisares de informacao atual ou que nao sabes. args: {query, max_results?}',
@@ -426,6 +428,12 @@ class AgentService {
 						. '(Assistant/Chat) -- nao a partir da fila/cron ou do Telegram, que correm sem '
 						. 'utilizador associado.']
 					: $this->learnRule((string)($args['name'] ?? ''), (string)($args['text'] ?? ''), $userId),
+				'agent_list_rules' => ['rules' => $this->promptRules->listRules()],
+				'agent_forget_rule' => $userId === null
+					? ['error' => 'agent_forget_rule so pode ser usado por um utilizador Nextcloud autenticado '
+						. '(Assistant/Chat) -- nao a partir da fila/cron ou do Telegram, que correm sem '
+						. 'utilizador associado.']
+					: $this->promptRules->forget((string)($args['name'] ?? '')),
 				'memory_forget_app' => ['forgotten' => $this->memory->forgetApp((string)($args['app_id'] ?? ''))],
 				'calculator' => $this->supervisorTools->calculate((string)($args['expression'] ?? '')),
 				'web_search' => $this->supervisorTools->webSearch(
