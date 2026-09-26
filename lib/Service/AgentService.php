@@ -445,14 +445,37 @@ class AgentService {
 		return $result;
 	}
 
+	/**
+	 * O mesmo alvo real pode chegar de duas formas -- "/episodes/1" direto,
+	 * ou "/episodes/{episode_id}" com query {episode_id:1} -- e as duas TEM
+	 * de dar a mesma assinatura, senao o modelo, ao mudar de forma entre um
+	 * pedido e a confirmacao, faz o codigo achar que sao accoes diferentes e
+	 * recusa a confirmacao legitima. Isto so serve para IDENTIFICAR a accao
+	 * (guardDestructive) -- a chamada real ao DynamicApiService nao muda.
+	 *
+	 * @param array<string,mixed> $query
+	 */
+	private static function resolvedPath(string $path, array $query): string {
+		return (string)preg_replace_callback(
+			'/\{([a-zA-Z0-9_]+)\}/',
+			static fn (array $m): string => isset($query[$m[1]]) ? (string)$query[$m[1]] : $m[0],
+			$path
+		);
+	}
+
 	private function confirmationRefusal(): array {
 		return [
 			'error' => 'Esta e uma acao destrutiva/irreversivel -- recusada sem confirmacao explicita.',
 			'requires_confirmation' => true,
+			// "nesta mesma RESPOSTA" e nao "nesta mesma conversa" de proposito -- essa
+			// ambiguidade ja confundiu o modelo a acreditar que ficava bloqueado para
+			// sempre nesta conversa, e inventou explicacoes erradas por causa disso.
+			// A mensagem SEGUINTE do utilizador e sempre uma nova oportunidade.
 			'hint' => 'Pergunta ao utilizador se tem a certeza (numa resposta "final", sem chamar nenhuma '
-				. 'ferramenta) e PARA AQUI -- nao tentes outra vez nesta mesma conversa. So depois de ele '
-				. 'confirmar explicitamente numa mensagem seguinte e que a mesma chamada, com confirm:true, '
-				. 'sera aceite.',
+				. 'ferramenta) e PARA AQUI NESTA RESPOSTA -- nao tentes outra vez AGORA. Isto NAO e um '
+				. 'bloqueio permanente desta conversa: assim que o utilizador confirmar explicitamente numa '
+				. 'PROXIMA mensagem (ex: "sim", "confirmo"), repete a MESMA chamada, com os MESMOS '
+				. 'parametros exatos e com confirm:true, e sera aceite nessa mensagem seguinte.',
 		];
 	}
 
@@ -545,7 +568,10 @@ class AgentService {
 				'memory_list_notes' => ['notes' => $this->memory->recallAll()],
 				'app_api_call' => strtoupper(trim((string)($args['method'] ?? ''))) === 'DELETE'
 					? $this->guardDestructive(
-						'app_api_call:DELETE:' . ($args['app_id'] ?? '') . ':' . ($args['path'] ?? ''),
+						'app_api_call:DELETE:' . ($args['app_id'] ?? '') . ':' . self::resolvedPath(
+							(string)($args['path'] ?? ''),
+							isset($args['query']) ? (array)$args['query'] : []
+						),
 						$channelKey,
 						$args,
 						$seenThisRun,
