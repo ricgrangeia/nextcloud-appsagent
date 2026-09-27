@@ -255,9 +255,9 @@ class AgentService {
 			'app_api_call' => 'Executa UMA operação HTTP do catálogo de uma app (discovery_describe_app_api). O metodo+caminho tem de existir mesmo no catálogo, senão é recusado. DELETE e IRREVERSÍVEL e exige confirm:true (ve a regra de confirmação abaixo), e pode estar bloqueado por completo (generic_api_allow_delete). Devolve {status, ok, body, hint?} -- erros HTTP vem como observacao (não exceção) para poderes corrigir e tentar de novo. args: {app_id, method, path, body?, query?, confirm?}. Pode estar desligada -- se devolver erro a dizer isso, informa o utilizador.',
 			'discovery_list_app_commands' => 'Lista os comandos occ que uma app regista (mais lento -- corre um subprocesso occ). args: {app_id}',
 			'discovery_describe_command' => 'Le o texto de --help de um comando occ específico (só leitura, não o executa). args: {command}',
-			'agent_learn_rule' => 'Ensina-te uma regra de comportamento GERAL e persistente, que passa a aplicar-se a TODAS as conversas futuras (não só a uma app -- para isso usa memory_save_recipe). Usa isto quando o utilizador te disser explicitamente para te lembrares de algo sobre como te deves comportar (ex: "a partir de agora, quando eu disser X, faz Y"). Não uses para factos soltos (isso é memory_save_note) nem para receitas de uma app (memory_save_recipe). Não podes sobrescrever as regras base do sistema com o mesmo nome. Só funciona quando falas com um utilizador Nextcloud autenticado (Assistant/Chat) -- recusa a partir da fila/cron ou do Telegram. args: {name, text}',
+			'agent_learn_rule' => 'Ensina-te uma regra de comportamento GERAL e persistente, que passa a aplicar-se a TODAS as conversas futuras (não só a uma app -- para isso usa memory_save_recipe). Usa isto quando o utilizador te disser explicitamente para te lembrares de algo sobre como te deves comportar (ex: "a partir de agora, quando eu disser X, faz Y"). Não uses para factos soltos (isso é memory_save_note) nem para receitas de uma app (memory_save_recipe). Não podes sobrescrever as regras base do sistema com o mesmo nome. Só funciona quando ha um utilizador Nextcloud associado a esta conversa (Assistant/Chat, ou Telegram JA LIGADO a um utilizador) -- recusa na fila/cron, ou no Telegram sem ligacao feita (nesses casos nao ha utilizador nenhum, nao e por ser Telegram em si). args: {name, text}',
 			'agent_list_rules' => 'Lista as tuas regras de comportamento em vigor, distinguindo as base (do sistema) das que o utilizador te ensinou, com a data em que as aprendeste. Usa SEMPRE isto -- e nunca a memória de notas, que é outra coisa -- quando te perguntarem que regras ou instruções permanentes tens definidas (ex: "o que te ensinei", "que regras tens a partir de agora"). args: {}',
-			'agent_forget_rule' => 'Apaga uma regra que te foi ensinada, quando o utilizador disser para a esqueceres ou quando ela deixar de fazer sentido. Chama agent_list_rules primeiro para saberes o nome exato. Não apaga regras base do sistema. Só funciona quando falas com um utilizador Nextcloud autenticado (Assistant/Chat) -- recusa a partir da fila/cron ou do Telegram. args: {name}',
+			'agent_forget_rule' => 'Apaga uma regra que te foi ensinada, quando o utilizador disser para a esqueceres ou quando ela deixar de fazer sentido. Chama agent_list_rules primeiro para saberes o nome exato. Não apaga regras base do sistema. Só funciona quando ha um utilizador Nextcloud associado a esta conversa (Assistant/Chat, ou Telegram JA LIGADO a um utilizador) -- recusa na fila/cron, ou no Telegram sem ligacao feita. args: {name}',
 			'memory_forget_app' => 'Apaga TODAS as receitas aprendidas de uma app, para as voltares a explorar do zero na próxima vez -- usa quando o utilizador pedir para "esquecer"/"reaprender" uma app, ou quando as receitas guardadas parecerem erradas/desatualizadas. args: {app_id}',
 			'calculator' => 'Avalia uma expressao matematica (raiz, trigonometria, logaritmos, fatorial, pi/e, etc.) -- usa isto para QUALQUER conta, nunca calcules tu mesmo de cabeca. Devolve {result} ou {error}. args: {expression}',
 			'web_search' => 'Pesquisa na web (DuckDuckGo) e devolve uma lista de resultados {title, url, snippet}. Usa quando precisares de informação atual ou que não sabes. args: {query, max_results?}',
@@ -593,15 +593,15 @@ class AgentService {
 				'discovery_list_app_commands' => $this->occDiscovery->listAppCommands((string)($args['app_id'] ?? '')),
 				'discovery_describe_command' => $this->occDiscovery->describeCommand((string)($args['command'] ?? '')),
 				'agent_learn_rule' => $userId === null
-					? ['error' => 'agent_learn_rule so pode ser usado por um utilizador Nextcloud autenticado '
-						. '(Assistant/Chat) -- nao a partir da fila/cron ou do Telegram, que correm sem '
-						. 'utilizador associado.']
+					? ['error' => 'agent_learn_rule precisa de um utilizador Nextcloud associado a esta '
+						. 'conversa -- recusado na fila/cron, ou no Telegram sem ligacao feita a um '
+						. 'utilizador (nao e por ser Telegram em si).']
 					: $this->learnRule((string)($args['name'] ?? ''), (string)($args['text'] ?? ''), $userId),
 				'agent_list_rules' => ['rules' => $this->promptRules->listRules()],
 				'agent_forget_rule' => $userId === null
-					? ['error' => 'agent_forget_rule so pode ser usado por um utilizador Nextcloud autenticado '
-						. '(Assistant/Chat) -- nao a partir da fila/cron ou do Telegram, que correm sem '
-						. 'utilizador associado.']
+					? ['error' => 'agent_forget_rule precisa de um utilizador Nextcloud associado a esta '
+						. 'conversa -- recusado na fila/cron, ou no Telegram sem ligacao feita a um '
+						. 'utilizador (nao e por ser Telegram em si).']
 					: $this->promptRules->forget((string)($args['name'] ?? '')),
 				'memory_forget_app' => ['forgotten' => $this->memory->forgetApp((string)($args['app_id'] ?? ''))],
 				'calculator' => $this->supervisorTools->calculate((string)($args['expression'] ?? '')),
