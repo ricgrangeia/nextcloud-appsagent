@@ -13,10 +13,17 @@ use OCP\AppFramework\Controller;
 use OCP\AppFramework\Http\Attribute\NoCSRFRequired;
 use OCP\AppFramework\Http\Attribute\PublicPage;
 use OCP\AppFramework\Http\DataResponse;
+use OCP\ICacheFactory;
 use OCP\IRequest;
 use Psr\Log\LoggerInterface;
 
 class TelegramController extends Controller {
+	/** Segundos a esperar por mais uma foto do mesmo album antes de dar por fechado. */
+	private const ALBUM_ESPERA = 3;
+
+	/** Quanto tempo a legenda de um album fica guardada, em segundos. */
+	private const ALBUM_TTL = 300;
+
 	public function __construct(
 		string $appName,
 		IRequest $request,
@@ -26,6 +33,7 @@ class TelegramController extends Controller {
 		private ConversationService $conversation,
 		private ImageAnalysisService $imageAnalysis,
 		private LoggerInterface $logger,
+		private ICacheFactory $cacheFactory,
 	) {
 		parent::__construct($appName, $request);
 	}
@@ -54,6 +62,9 @@ class TelegramController extends Controller {
 		$text = $message['text'] ?? null;
 		$photos = $message['photo'] ?? null;
 		$caption = $message['caption'] ?? null;
+		// Um album chega partido em varios updates, um por foto, todos com o
+		// mesmo media_group_id -- e a legenda vem so num deles.
+		$mediaGroupId = $message['media_group_id'] ?? null;
 
 		if ($chatId === null || ($text === null && !is_array($photos))) {
 			return new DataResponse(['ok' => true]);
@@ -113,7 +124,14 @@ class TelegramController extends Controller {
 		$nextcloudUserId = $this->telegramClient->resolveNextcloudUser((int)$fromId);
 
 		if (is_array($photos) && $photos !== []) {
-			$this->handlePhoto((int)$chatId, $chatKey, $photos, is_string($caption) ? $caption : '');
+			$this->handlePhoto(
+				(int)$chatId,
+				$chatKey,
+				$nextcloudUserId,
+				$photos,
+				is_string($caption) ? $caption : '',
+				is_string($mediaGroupId) ? $mediaGroupId : '',
+			);
 			return new DataResponse(['ok' => true]);
 		}
 
@@ -141,17 +159,35 @@ class TelegramController extends Controller {
 	}
 
 	/**
-	 * Uma foto nunca executa nada sozinha -- so descreve o que ve e responde,
-	 * gravando a troca no historico da conversa (ConversationService). Assim,
-	 * quando a instrucao real chegar numa mensagem de texto a seguir ("insere
-	 * abastecimento no Hyundai accent"), o agente ja tem, no seu proprio
-	 * historico, o que cada foto mostrava -- sem precisar de nenhum mecanismo
-	 * novo para alem do que ja existe.
+	 * Uma foto continua a nao executar nada por si: o modelo de visao nao tem
+	 * ferramentas e limita-se a descrever. O que mudou e o passo a seguir --
+	 * quando a foto traz legenda, a descricao E a legenda seguem para o
+	 * AgentService, que esse sim tem ferramentas.
+	 *
+	 * A regra anterior ("a instrucao real chega numa mensagem de texto a
+	 * seguir") era segura mas obrigava a escrever duas vezes o que ja estava
+	 * escrito: mandar a fatura com "regista abastecimento no Opel astra" e
+	 * receber de volta uma descricao da fatura e um pedido para repetir a
+	 * ordem em texto.
+	 *
+	 * Album: o Telegram manda cada foto no seu proprio update, todas com o
+	 * mesmo media_group_id, e a legenda vem so numa delas. Cada update
+	 * descreve a sua foto e grava-a no historico; o ULTIMO a chegar e que
+	 * chama o agente, e ai o historico ja tem as descricoes todas -- a fatura
+	 * e o conta-quilometros. Os outros calam-se, senao a conversa enche de
+	 * descricoes antes de aparecer o resultado.
 	 *
 	 * @param array<int, array<string, mixed>> $photoSizes o Telegram manda a mesma foto
 	 *   em varias resolucoes, da mais pequena para a maior -- a ultima e a melhor.
 	 */
-	private function handlePhoto(int $chatId, string $chatKey, array $photoSizes, string $caption): void {
+	private function handlePhoto(
+		int $chatId,
+		string $chatKey,
+		?string $nextcloudUserId,
+		array $photoSizes,
+		string $caption,
+		string $mediaGroupId,
+	): void {
 		$maior = end($photoSizes);
 		$fileId = (string)($maior['file_id'] ?? '');
 		if ($fileId === '') {
@@ -165,17 +201,9 @@ class TelegramController extends Controller {
 		}
 		[$bytes, $mime] = $baixado;
 
-		// A legenda entra como CONTEXTO, nunca como ordem.
-		//
-		// Era entregue ao modelo como a pergunta, e isso partia a promessa que
-		// esta funcao faz logo acima: "uma foto nunca executa nada sozinha".
-		// Com uma legenda do tipo "regista a leitura do odometro", o modelo de
-		// visao -- que nao tem ferramenta nenhuma -- fazia o que um modelo de
-		// linguagem faz: respondia "registei". E essa frase seguia para o
-		// utilizador como se fosse resposta do agente.
-		//
-		// Observado a serio: leu o odometro e a fatura, disse que tinha
-		// registado, e nada foi registado.
+		// A legenda entra aqui como CONTEXTO, nunca como ordem: este modelo
+		// nao tem ferramentas e, se receber a legenda como ordem, responde
+		// "registei" sem ter registado nada. Quem executa e o agente, abaixo.
 		$instrucoes = 'Descreve com detalhe o que ves nesta imagem, com atencao especial a '
 			. 'numeros, valores monetarios, quantidades e datas que aparecam.';
 		if ($caption !== '') {
@@ -185,24 +213,104 @@ class TelegramController extends Controller {
 		$instrucoes .= "\n\nNAO executas accoes. Nao tens ferramentas, nao gravas nada, "
 			. 'nao registas nada. Nunca digas que registaste, guardaste, criaste ou '
 			. 'actualizaste o que quer que seja: limita-te a descrever o que ves.';
-		$pergunta = $instrucoes;
 
-		$descricao = $this->imageAnalysis->ask($bytes, $mime, $pergunta);
-		$resposta = $descricao ?? 'Recebi a imagem mas nao consegui interpretar o conteudo.';
-
-		// Guardado como um par de turno normal -- e assim que a instrucao
-		// seguinte, em texto, vai encontrar isto no historico.
-		$rotuloUtilizador = '[enviou uma imagem' . ($caption !== '' ? (': ' . $caption) : '') . ']';
-		$this->conversation->remember($chatKey, $rotuloUtilizador, $resposta);
-
-		// Dito ao utilizador, porque a alternativa e ele ficar a pensar que a
-		// foto bastou. O agente so age quando chega uma instrucao em TEXTO --
-		// e ai ja encontra esta descricao no historico.
-		if ($descricao !== null) {
-			$resposta .= "\n\nSo li a imagem; nao registei nada. Diz-me em texto o que "
-				. 'queres que faca com isto.';
+		$descricao = $this->imageAnalysis->ask($bytes, $mime, $instrucoes);
+		if ($descricao === null) {
+			$this->telegramClient->sendMessage($chatId, 'Recebi a imagem mas nao consegui interpretar o conteudo.');
+			return;
 		}
 
-		$this->telegramClient->sendMessage($chatId, $resposta);
+		// Guardado como um par de turno normal -- e daqui que o agente tira a
+		// descricao de CADA foto do album, sem precisar de a transportar.
+		$rotuloUtilizador = '[enviou uma imagem' . ($caption !== '' ? (': ' . $caption) : '') . ']';
+		$this->conversation->remember($chatKey, $rotuloUtilizador, $descricao);
+
+		$ordem = $mediaGroupId !== ''
+			? $this->ordemDoAlbum($mediaGroupId, $caption)
+			: $caption;
+
+		// Album, e esta nao e a ultima foto: quem responde e a ultima, ja com
+		// o resultado.
+		if ($ordem === null) {
+			return;
+		}
+
+		// Sem legenda nao ha ordem nenhuma para executar. Fica a descricao e o
+		// aviso, porque a alternativa e o utilizador pensar que a foto bastou.
+		if ($ordem === '') {
+			$this->telegramClient->sendMessage(
+				$chatId,
+				$descricao . "\n\nSo li a imagem; nao registei nada. "
+					. 'Diz-me em texto o que queres que faca com isto.',
+			);
+			return;
+		}
+
+		$this->telegramClient->sendTyping($chatId);
+
+		try {
+			$resposta = $this->agentService->run(
+				$nextcloudUserId,
+				$this->conversation->withHistory($chatKey, $ordem),
+				function () use ($chatId): void {
+					$this->telegramClient->sendTyping($chatId);
+				},
+				$chatKey,
+			);
+		} catch (\Throwable $e) {
+			$this->logger->error('appsagent: erro a executar a legenda de uma foto', ['exception' => $e]);
+			$resposta = 'Li as imagens, mas falhei a executar "' . $ordem . '": ' . $e->getMessage();
+		}
+
+		// A ordem fica no historico como um turno normal, para o "sim" ou o
+		// "muda a data" que venham a seguir saberem do que se fala.
+		$this->conversation->remember($chatKey, $ordem, $resposta);
+		$this->telegramClient->sendMessage($chatId, $resposta !== '' ? $resposta : 'Feito.');
+	}
+
+	/**
+	 * Decide, dentro de um album, se e esta a foto que manda executar a ordem.
+	 *
+	 * O Telegram nao diz quantas fotos tem o album nem quando acabou. Entao
+	 * cada update inscreve-se como o ultimo a chegar e espera um instante: se
+	 * entretanto nenhum outro se inscreveu, era mesmo o ultimo. A legenda fica
+	 * na cache porque pode ter vindo em qualquer uma das fotos, nao
+	 * necessariamente nesta.
+	 *
+	 * @return string|null a ordem a executar, '' se o album nao traz legenda
+	 *   nenhuma, ou null se esta foto nao e a ultima -- e portanto cala-se.
+	 */
+	private function ordemDoAlbum(string $mediaGroupId, string $caption): ?string {
+		// Sem cache distribuida (Redis/memcached) o createDistributed devolve
+		// uma ArrayCache, que vive so dentro de UM pedido -- cada foto do
+		// album julgar-se-ia a ultima e executaria a ordem, gravando o mesmo
+		// abastecimento duas vezes. Nesse caso nao se executa nada a partir de
+		// um album: volta ao comportamento antigo, que e pedir a ordem em
+		// texto. Um registo a menos corrige-se; um a dobrar e pior.
+		if (!$this->cacheFactory->isAvailable()) {
+			$this->logger->warning(
+				'appsagent: album de fotos recebido sem cache distribuida configurada; '
+				. 'a legenda nao e executada. Configurar memcache.distributed para a ligar.',
+			);
+			return '';
+		}
+
+		$cache = $this->cacheFactory->createDistributed('appsagent_album');
+		$chaveLegenda = $mediaGroupId . ':legenda';
+		$chaveUltimo = $mediaGroupId . ':ultimo';
+
+		if ($caption !== '') {
+			$cache->set($chaveLegenda, $caption, self::ALBUM_TTL);
+		}
+
+		$meuToken = bin2hex(random_bytes(8));
+		$cache->set($chaveUltimo, $meuToken, self::ALBUM_TTL);
+		sleep(self::ALBUM_ESPERA);
+
+		if ($cache->get($chaveUltimo) !== $meuToken) {
+			return null;
+		}
+
+		return (string)($cache->get($chaveLegenda) ?? '');
 	}
 }
