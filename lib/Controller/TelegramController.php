@@ -165,10 +165,27 @@ class TelegramController extends Controller {
 		}
 		[$bytes, $mime] = $baixado;
 
-		$pergunta = $caption !== ''
-			? $caption
-			: 'Descreve com detalhe o que ve nesta imagem, com atencao especial a numeros, '
-				. 'valores monetarios, quantidades e datas que apareçam.';
+		// A legenda entra como CONTEXTO, nunca como ordem.
+		//
+		// Era entregue ao modelo como a pergunta, e isso partia a promessa que
+		// esta funcao faz logo acima: "uma foto nunca executa nada sozinha".
+		// Com uma legenda do tipo "regista a leitura do odometro", o modelo de
+		// visao -- que nao tem ferramenta nenhuma -- fazia o que um modelo de
+		// linguagem faz: respondia "registei". E essa frase seguia para o
+		// utilizador como se fosse resposta do agente.
+		//
+		// Observado a serio: leu o odometro e a fatura, disse que tinha
+		// registado, e nada foi registado.
+		$instrucoes = 'Descreve com detalhe o que ves nesta imagem, com atencao especial a '
+			. 'numeros, valores monetarios, quantidades e datas que aparecam.';
+		if ($caption !== '') {
+			$instrucoes .= "\n\nO utilizador escreveu: \"" . $caption . "\". "
+				. 'Usa isso APENAS para saber ao que prestar atencao na imagem.';
+		}
+		$instrucoes .= "\n\nNAO executas accoes. Nao tens ferramentas, nao gravas nada, "
+			. 'nao registas nada. Nunca digas que registaste, guardaste, criaste ou '
+			. 'actualizaste o que quer que seja: limita-te a descrever o que ves.';
+		$pergunta = $instrucoes;
 
 		$descricao = $this->imageAnalysis->ask($bytes, $mime, $pergunta);
 		$resposta = $descricao ?? 'Recebi a imagem mas nao consegui interpretar o conteudo.';
@@ -177,6 +194,14 @@ class TelegramController extends Controller {
 		// seguinte, em texto, vai encontrar isto no historico.
 		$rotuloUtilizador = '[enviou uma imagem' . ($caption !== '' ? (': ' . $caption) : '') . ']';
 		$this->conversation->remember($chatKey, $rotuloUtilizador, $resposta);
+
+		// Dito ao utilizador, porque a alternativa e ele ficar a pensar que a
+		// foto bastou. O agente so age quando chega uma instrucao em TEXTO --
+		// e ai ja encontra esta descricao no historico.
+		if ($descricao !== null) {
+			$resposta .= "\n\nSo li a imagem; nao registei nada. Diz-me em texto o que "
+				. 'queres que faca com isto.';
+		}
 
 		$this->telegramClient->sendMessage($chatId, $resposta);
 	}
